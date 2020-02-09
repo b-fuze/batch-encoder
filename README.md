@@ -7,6 +7,9 @@
  - Either a \*nix environment
      - Or WSL (Windows Subsystem for Linux) with `ffmpeg.exe` and `ffprobe.exe` in your PATH
 
+## Screenshot
+![encoder.sh at work](data/encoder_screenshot.png)
+
 ## Usage
 Display this by running `encoder.sh --help`
 ```
