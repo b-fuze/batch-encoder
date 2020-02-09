@@ -4,6 +4,8 @@
 ## Requirements
  - A working Bash v4+ interpreter with usual coreutils some other misc utils. 
  - FFmpeg/FFprobe
+ - Either a \*nix environment
+     - Or WSL (Windows Subsystem for Linux) with `ffmpeg.exe` and `ffprobe.exe` in your PATH
 
 ## Usage
 Display this by running `encoder.sh --help`
