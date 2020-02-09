@@ -259,8 +259,10 @@ OPTIONS
         Overwrite existing videos. Won't by default.
 
     --debug-run [DURATION]
-        Test encoder by only encoding DURATION (seconds)
-        of videos.
+        Test encoder by only encoding (optional) 
+        DURATION in seconds of videos. When 
+        DURATION is omitted it defaults to 5
+        seconds.
 
     -h --help
         Show this help.
