@@ -561,7 +561,7 @@ for video in ${videos[@]}; do
     vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
 
     # Get all video streams' (estimated) frame counts
-    vid_video_streams="$( echo "$streams" | grep " Video" )"
+    vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" )"
     cur_vid_vid_streams=()
     cur_vid_stream=1
 
@@ -595,8 +595,25 @@ for video in ${videos[@]}; do
         audio_stream=$( echo "$audio_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
     fi
 
+    # Detect subtitle streams
+    cur_vid_has_subtitles=true
+
+    if [[ -z "$( grep -E "Stream #.+Subtitle" <<< "$streams" )" ]]; then
+        cur_vid_has_subtitles=false
+    fi
+
     if [[ $vid_burn_subs == null ]]; then
-        confirm "Burn subtitles?" "n" && vid_burn_subs=true
+        if [[ $cur_vid_has_subtitles == true ]]; then
+            confirm "Burn subtitles?" "n" && vid_burn_subs=true
+        else
+            echo "No subtitles detected"
+        fi
+    fi
+
+    # No matter the settings, disable burning subtitles for this
+    # video since it doesn't have any subtitles
+    if [[ $cur_vid_has_subtitles == false ]]; then
+        vid_burn_subs=false
     fi
 
     IFS=':'
