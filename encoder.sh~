@@ -50,32 +50,11 @@ get_detail() {
 }
 
 # Convert paths for external Windows programs
-HAS_CYGPATH=false
-HAS_WSLPATH=false
-
 path() {
     __cur_path="$1"
 
     if [[ $IS_WINDOWS == true ]]; then
-            wslpath -m "$__cur_path"
-        elif [[ $HAS_CYGPATH == true ]]; then
-            cypath.exe -w "$__cur_path"
-        fi
-    else
-        echo -n "$__cur_path"
-    fi
-}
-
-# Convert windows paths to nix
-nix_path() {
-    __cur_path="$1"
-
-    if [[ $IS_WINDOWS == true ]]; then
-        if [[ $HAS_WSLPATH == true ]]; then
-            wslpath -u "$__cur_path"
-        elif [[ $HAS_CYGPATH == true ]]; then
-            cypath.exe -u "$__cur_path"
-        fi
+        wslpath -m "$__cur_path"
     else
         echo -n "$__cur_path"
     fi
@@ -476,6 +455,20 @@ case $res in
         exit 1
 esac
 
+# Check for Windows paths
+check_windows_path() {
+    local path="$1"
+
+    if [[ $path =~ [A-Z]:\\ ]]; then
+        wslpath 
+    else
+        echo -n "$path"
+    fi
+}
+
+check_windows_path "$src_dir"
+check_windows_path "$out_dir"
+
 # Check for (optional) Watermark file
 use_watermark=true
 
@@ -507,34 +500,6 @@ fi
 if [[ -z $ffprobe_executable ]]; then
     echo "FFprobe command not installed in your PATH, aborting..."
     exit 1
-fi
-
-# If we're running Windows make sure we have a win 2 *nix path converter around
-if [[ $IS_WINDOWS == true ]]; then
-    # Check for either wslpath or cygpath
-    if which wslpath 2>&1 > /dev/null; then
-        HAS_WSLPATH=true
-    elif which cygpath 2>&1 > /dev/null; then
-        HAS_CYGPATH=true
-    else
-        echo "On Windows either 'wslpath' or 'cygpath.exe' is required."
-        exit 1
-    fi
-
-    # Check for Windows paths
-    check_windows_path() {
-        local path="$1"
-
-        # Match against absolute paths on Windows
-        if [[ $path =~ [A-Z]:\\ ]]; then
-            nix_path "$path"
-        else
-            echo -n "$path"
-        fi
-    }
-
-    src_dir="$( check_windows_path "$src_dir" )"
-    out_dir="$( check_windows_path "$out_dir" )"
 fi
 
 echo "Found FFmpeg: $ffmpeg_executable"
