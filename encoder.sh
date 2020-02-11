@@ -421,18 +421,18 @@ while true; do
 done
 
 # Deconstruct default variables
-res=${defaults[res]}
-auto=${defaults[auto]}
-out_dir=${defaults[out_dir]}
-src_dir=${defaults[src_dir]}
-recursive=${defaults[recursive]}
-force=${defaults[force]}
-clean=${defaults[clean]}
-burn_subs=${defaults[burn_subs]}
-watermark=${defaults[watermark]}
-locale=${defaults[locale]}
-debug_run=${defaults[debug_run]}
-debug_run_dur=${defaults[debug_run_dur]}
+res="${defaults[res]}"
+auto="${defaults[auto]}"
+out_dir="${defaults[out_dir]}"
+src_dir="${defaults[src_dir]}"
+recursive="${defaults[recursive]}"
+force="${defaults[force]}"
+clean="${defaults[clean]}"
+burn_subs="${defaults[burn_subs]}"
+watermark="${defaults[watermark]}"
+locale="${defaults[locale]}"
+debug_run="${defaults[debug_run]}"
+debug_run_dur="${defaults[debug_run_dur]}"
 
 # Default output dir to src dir
 if [[ $out_dir == null ]]; then
