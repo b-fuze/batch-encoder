@@ -521,7 +521,7 @@ if [[ $IS_WINDOWS == true ]]; then
         exit 1
     fi
 
-    # Check for Windows paths
+    # Check for Windows paths provided by the user in either `-s` or `-d`
     check_windows_path() {
         local path="$1"
 
