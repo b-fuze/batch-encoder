@@ -57,6 +57,7 @@ path() {
     __cur_path="$1"
 
     if [[ $IS_WINDOWS == true ]]; then
+        if [[ $HAS_WSLPATH == true ]]; then
             wslpath -m "$__cur_path"
         elif [[ $HAS_CYGPATH == true ]]; then
             cypath.exe -w "$__cur_path"
