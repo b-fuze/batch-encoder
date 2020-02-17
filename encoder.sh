@@ -11,8 +11,6 @@
 # `ffprobe.exe` are in your PATH
 
 # TODO: Add watch feature to watch the source folder for new files
-# TODO: Check screen width everytime you print
-# TODO: Don't erase line when printing progress, just padd the rest of the line with spaces
 # TODO: Batch video resolution (e.g 1080,720,360)
 # TODO: Cache FFprobe's output somewhere
 # TODO: Print FFmpeg errors _after_ the progress _while_ still updating process _in-place_
