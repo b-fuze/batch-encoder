@@ -10,6 +10,7 @@
 # It also works on Windows via WSL as long as both `ffmpeg.exe` and 
 # `ffprobe.exe` are in your PATH
 
+# TODO: Add watch feature to watch the source folder for new files
 # TODO: Check screen width everytime you print
 # TODO: Don't erase line when printing progress, just padd the rest of the line with spaces
 # TODO: Batch video resolution (e.g 1080,720,360)
@@ -138,9 +139,6 @@ run_ffmpeg() {
     local vid_details="$1"
     local vid_frames="$( get_detail "VSTREAM_FRAMES" "$vid_details" )"
 
-    # Get terminal's columns/width
-    local columns=$( tput cols )
-
     shift
     local ffmpeg_cmd=("${@}")
 
@@ -199,18 +197,26 @@ run_ffmpeg() {
                     local eta_secs=0
                 fi
 
-                # Clear line
-                local full_line="$( dd bs=1 count=$columns if=/dev/zero 2> /dev/null | tr '\0' ' ' )"
-                echo -en "\e[0K\r${full_line}\r"
+                # Get terminal's columns/width
+                local columns=$( tput cols )
 
                 # Print progress, FPS, and ETA (with some pretty formatting)
                 echo -en "Progress \e[92m$( b "$enc_pct" ) FPS $( b "${cur_progress[fps]}" ) ETA $( b "$( human_duration "$eta_secs" )" )"
+                local printed_message="Progress $enc_pct FPS ${cur_progress[fps]} ETA $( human_duration "$eta_secs" )"
+                local printed_message_length=${#printed_message}
+
+                # Clear line
+                local full_line="$( dd bs=1 count=$(( columns - printed_message_length )) if=/dev/zero 2> /dev/null | tr '\0' ' ' )"
+                echo -en "\e[0K${full_line}\r"
             else
                 local cur_progress[$key]="$value"
             fi
         done
 
     local ffmpeg_status=$?
+
+    # Get terminal's columns/width
+    local columns=$( tput cols )
 
     # Clear line
     local full_line="$( dd bs=1 count=$columns if=/dev/zero 2> /dev/null | tr '\0' ' ' )"
