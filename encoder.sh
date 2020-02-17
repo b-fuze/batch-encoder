@@ -12,10 +12,10 @@
 
 # TODO: Add watch feature to watch the source folder for new files
 # TODO: Batch video resolution (e.g 1080,720,360)
-# TODO: Cache FFprobe's output somewhere
 # TODO: Print FFmpeg errors _after_ the progress _while_ still updating process _in-place_
-# TODO: Remove ./ from the beginning of paths
+# TODO: Cache FFprobe's output somewhere
 # TODO: Validate stream options
+# TODO: Remove ./ from the beginning of paths
 
 shopt -s extglob
 shopt -u nocaseglob
@@ -200,6 +200,9 @@ run_ffmpeg() {
 
                 # Print progress, FPS, and ETA (with some pretty formatting)
                 echo -en "Progress \e[92m$( b "$enc_pct" ) FPS $( b "${cur_progress[fps]}" ) ETA $( b "$( human_duration "$eta_secs" )" )"
+
+                # Fill the rest of the line with whitespace, erasing older
+                # characters
                 local printed_message="Progress $enc_pct FPS ${cur_progress[fps]} ETA $( human_duration "$eta_secs" )"
                 local printed_message_length=${#printed_message}
 
