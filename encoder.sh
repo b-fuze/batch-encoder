@@ -15,7 +15,6 @@
 # [3] TODO: Cache FFprobes output somewhere
 # [4] TODO: Validate stream options
 # [5] TODO: Batch video resolution (e.g 1080,720,360)
-# [6] TODO: Remove . from the beginning of paths
 
 shopt -s extglob
 shopt -u nocaseglob
@@ -545,6 +544,10 @@ if [[ $IS_WINDOWS == true ]]; then
     out_dir="$( check_windows_path "$out_dir" )"
 fi
 
+# Remove any repeating slashes (if any)
+ffmpeg_executable=$( echo -n "$ffmpeg_executable" | tr -s / )
+ffprobe_executable=$( echo -n "$ffprobe_executable" | tr -s / )
+
 echo "Found FFmpeg: $ffmpeg_executable"
 echo "Found FFprobe: $ffprobe_executable"
 
@@ -598,8 +601,12 @@ echo -e "\n\e[95m\e[1mProcessing videos...\e[0m"
 cur_video_index=1
 for video in ${videos[@]}; do
     vid_dir="$( dirname "$video" )"
+    vid_dir_print="$( dirname "$video" )/"
     vid_file="$( basename "$video" )"
-    echo -e "\nProcessing [$cur_video_index/$video_count] \e[32m$vid_dir/\e[92m$vid_file\e[0m..."
+
+    # Don't print dir if it's just './'
+    vid_dir_print=${vid_dir_print#./}
+    echo -e "\nProcessing [$cur_video_index/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
 
     streams=
     vid_out="$vid_dir/${vid_file%.*}.mp4"
@@ -746,14 +753,18 @@ for details in "${video_details[@]}"; do
     vid_output_args=("${ffmpeg_output_args[@]}")
 
     # Major video path components split for formatting purposes
-    vid_dir="$( dirname "$video" )"
+    # Don't print dir if it's just './'
+    vid_dir="$( dirname "$video" )/"
+    vid_dir=${vid_dir#./}
     vid_file="$( basename "$video" )"
-    vid_out_dir="$( dirname "$video_out" )"
+
+    vid_out_dir="$( dirname "$video_out" )/"
+    vid_out_dir=${vid_out_dir#./}
     vid_out_file="$( basename "$video_out" )"
 
     # Skip video if it exists and force(fully overwriting) isn't enabled
     if [[ $force != true ]] && [[ -f "$vid_abs_out" ]]; then
-        echo -e "\nSkipping [$cur_video_index/$video_count] \e[32m$vid_dir/\e[92m$vid_file\e[0m..."
+        echo -e "\nSkipping [$cur_video_index/$video_count] \e[32m$vid_dir\e[92m$vid_file\e[0m..."
         continue
     fi
 
@@ -783,8 +794,8 @@ for details in "${video_details[@]}"; do
     fi
 
     # Everything checks out, time to start encoding
-    echo -e "\nEncoding [$cur_video_index/$video_count] \e[32m$vid_out_dir/\e[92m$vid_out_file\e[0m"
-    echo -e   "    from \e[90m$vid_dir/$vid_file\e[0m"
+    echo -e "\nEncoding [$cur_video_index/$video_count] \e[32m$vid_out_dir\e[92m$vid_out_file\e[0m"
+    echo -e   "    from \e[90m$vid_dir$vid_file\e[0m"
 
     # Check if video resolution is specified by user or automatic
     [[ $vid_res == prompt ]] && vid_res=original
