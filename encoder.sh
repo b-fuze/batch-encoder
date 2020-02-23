@@ -294,6 +294,10 @@ OPTIONS
         DURATION is omitted it defaults to 5
         seconds.
 
+    --verbose-streams
+        Print all streams and don't exclusively filter
+        video, audio, and subtitle streams
+
     -h --help
         Show this help.
 EOF
@@ -318,6 +322,7 @@ defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by d
 defaults[locale]=sub                   # Subbed or dubbed
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
+defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
 
 arg_mapping[-r]=--resolution
 arg_mapping[-a]=--auto
@@ -427,6 +432,9 @@ while true; do
                         consume_optional=true
                         consume_next_arg=debug_run_dur
                         ;;
+                    --verbose-streams )
+                        defaults[verbose_streams]=true
+                        ;;
                     --help )
                         # Print help and quit
                         usage
@@ -463,6 +471,7 @@ watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
+verbose_streams="${defaults[verbose_streams]}"
 
 # Default output dir to src dir
 if [[ $out_dir == null ]]; then
@@ -649,8 +658,15 @@ for video in ${videos[@]}; do
         # Burns subs automatically too (mirroring Meow's original script)
         [[ $vid_burn_subs == null ]] && vid_burn_subs=true
     else
+        # Filter non video/audio/subtitle streams
+        vid_sed_filter_stream_options=(-n -e '/Video|Audio|Subtitle/p')
+
+        if [[ $verbose_streams == true ]]; then
+            vid_sed_filter_stream_options=()
+        fi
+
         # Print streams human-readable
-        echo "$streams" | grep 'Stream #0' | sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/'
+        echo "$streams" | grep 'Stream #0' | sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
 
         echo -n "Select Video: "
         read video_stream
