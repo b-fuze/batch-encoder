@@ -795,7 +795,7 @@ for details in "${video_details[@]}"; do
         # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
         #
         # Monstrosity of escaping inbound...
-        vid_filter_args+=("subtitles=$( path "$( echo -n "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )" )")
+        vid_filter_args+=("subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )")
     fi
 
     # Create output dir if it doesn't exist already
