@@ -1,8 +1,6 @@
 #!/bin/bash
 
 # Author: Mike32
-# Keep in mind this is the unstable version edited by MONGCHAW to test out the Selection of Subtitle Stream
-# PLEASE DON"T USE IT UNLESS YOU KNOW WHAT YOU ARE DOING
 #
 # Print usage: encoder.sh -h
 #
@@ -17,6 +15,7 @@
 # [3] TODO: Cache FFprobes output somewhere
 # [4] TODO: Validate stream options
 # [5] TODO: Batch video resolution (e.g 1080,720,360)
+# [6] TODO: Show the titles of the Streams
 
 shopt -s extglob
 shopt -u nocaseglob
@@ -302,7 +301,7 @@ OPTIONS
 
     -h --help
         Show this help.
-EOF 
+EOF
 }
 
 # Data dir with watermark (same as script folder)
@@ -757,6 +756,7 @@ for details in "${video_details[@]}"; do
     vid_auto="$( get_detail "AUTO" "$details" )"
     video_stream="$( get_detail "VSTREAM" "$details" )"
     audio_stream="$( get_detail "ASTREAM" "$details" )"
+    subtitle_stream="$( get_detail "SSTREAM" "$details" )"
     vid_burn_subs="$( get_detail "BURNSUBS" "$details" )"
     vid_res=$res
 
@@ -790,14 +790,15 @@ for details in "${video_details[@]}"; do
     fi
 
     # Choose different streams instead of the defaults
-    if [[ -n $video_stream ]] && [[ -n $audio_stream ]] && [[ -n $subtitle_stream ]]; then
-        vid_output_args+=(-map 0:$video_stream -map 0:$audio_stream -map 0:$subtitle_stream) 
+    if [[ -n $video_stream ]] && [[ -n $audio_stream ]] ; then
+        vid_output_args+=(-map 0:$video_stream -map 0:$audio_stream )
     fi
 
     # Burn subs
     if [[ $vid_burn_subs == true ]]; then
         # Because FFmpeg's video filters' parser has crazy rules for escaping...
         # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
+        #
         # Monstrosity of escaping inbound...
         vid_filter_args+=("subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )")
     fi
@@ -859,3 +860,4 @@ for details in "${video_details[@]}"; do
 done
 
 echo -e "\n\e[92mEncoded $video_count videos successfully\e[0m"
+
