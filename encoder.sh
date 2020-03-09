@@ -15,6 +15,7 @@
 # [3] TODO: Cache FFprobes output somewhere
 # [4] TODO: Validate stream options
 # [5] TODO: Batch video resolution (e.g 1080,720,360)
+# [6] TODO: Show titles of Streams
 
 shopt -s extglob
 shopt -u nocaseglob
