@@ -135,6 +135,11 @@ get_stream_framecount() {
 run_ffmpeg() {
     local vid_details="$1"
     local vid_frames="$( get_detail "VSTREAM_FRAMES" "$vid_details" )"
+    local vid_dir_out="$( dirname "$( get_detail "VIDEO_OUT" "$vid_details" )" )"
+
+    # Create temporary file to store FFmpeg errors
+    local tmp_vid_ffmpeg_errors=$( dirname "$tmp_vid_enc_list" )/.batch-enc-ffmpeg-err-$tmp_encoder_id
+    echo -n "" > "$tmp_vid_ffmpeg_errors"
 
     shift
     local ffmpeg_cmd=("${@}")
@@ -170,7 +175,7 @@ run_ffmpeg() {
     echo -en "\e[?25l"
 
     # Start FFmpeg
-    "${ffmpeg_cmd[@]}" | 
+    "${ffmpeg_cmd[@]}" 2> "$tmp_vid_ffmpeg_errors" |
         while read line; do
             local key="${line%=*}"
             local value="${line#*=}"
@@ -194,20 +199,11 @@ run_ffmpeg() {
                     local eta_secs=0
                 fi
 
-                # Get terminal's columns/width
-                local columns=$( tput cols )
+                # Clear line. Print progress, FPS, and ETA (with some pretty formatting)
+                echo -en '\e[2K'"Progress \e[92m$( b "$enc_pct" ) FPS $( b "${cur_progress[fps]}" ) ETA $( b "$( human_duration "$eta_secs" )" )"
 
-                # Print progress, FPS, and ETA (with some pretty formatting)
-                echo -en "Progress \e[92m$( b "$enc_pct" ) FPS $( b "${cur_progress[fps]}" ) ETA $( b "$( human_duration "$eta_secs" )" )"
-
-                # Fill the rest of the line with whitespace, erasing older
-                # characters
-                local printed_message="Progress $enc_pct FPS ${cur_progress[fps]} ETA $( human_duration "$eta_secs" )"
-                local printed_message_length=${#printed_message}
-
-                # Clear line
-                local full_line="$( dd bs=1 count=$(( columns - printed_message_length )) if=/dev/zero 2> /dev/null | tr '\0' ' ' )"
-                echo -en "\e[0K${full_line}\r"
+                # Reset cursor position to the beginning of the line
+                echo -en "\r"
             else
                 local cur_progress[$key]="$value"
             fi
@@ -215,15 +211,16 @@ run_ffmpeg() {
 
     local ffmpeg_status=$?
 
-    # Get terminal's columns/width
-    local columns=$( tput cols )
-
-    # Clear line
-    local full_line="$( dd bs=1 count=$columns if=/dev/zero 2> /dev/null | tr '\0' ' ' )"
-    echo -en "\e[0K\r${full_line}"
-
     # Show cursor
     echo -en "\e[?25h"
+
+    # Remove temporary FFmpeg error file or
+    # print it to the user in case of error
+    if [[ $ffmpeg_status == 0 ]]; then
+        rm "$tmp_vid_ffmpeg_errors"
+    else
+        echo "FFmpeg error log: $tmp_vid_ffmpeg_errors"
+    fi
 
     # Return FFmpeg's exit status
     return $ffmpeg_status
@@ -288,6 +285,10 @@ OPTIONS
     --force
         Overwrite existing videos. Won't by default.
 
+    -w --watch
+        Watch source directory recursively for new 
+        videos.
+
     --debug-run [DURATION]
         Test encoder by only encoding (optional) 
         DURATION in seconds of videos. When 
@@ -316,6 +317,7 @@ defaults[src_dir]=.                    # Source directory
 defaults[out_dir]=null                 # Output directory
 defaults[recursive]=null               # Recursively encode subdirs
 defaults[force]=false                  # Overwrites existing encodes
+defaults[watch]=false                  # Watch source directory for new videos
 defaults[clean]=false                  # Removes original video after encoding
 defaults[burn_subs]=null               # Burns subtitles into videos
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
@@ -329,6 +331,7 @@ arg_mapping[-a]=--auto
 arg_mapping[-d]=--destination
 arg_mapping[-s]=--source
 arg_mapping[-R]=--recursive
+arg_mapping[-w]=--watch
 arg_mapping[-h]=--help
 
 cur_arg="$1"
@@ -364,7 +367,7 @@ while true; do
                 case ${cur_base_arg[$cur_base_arg_index]} in
                     # Match all (listed) single char arguments either combined
                     # (e.g -aRs) or separate (e.g -a -R -s)
-                    -+([adhsRr]) )
+                    -+([adhsRrw]) )
                         opts=${cur_arg:1}
                         opt_length=${#opts}
 
@@ -421,6 +424,9 @@ while true; do
                     --force )
                         defaults[force]=true
                         ;;
+                    --watch )
+                        defaults[watch]=true
+                        ;;
                     --clean )
                         defaults[clean]=true
                         ;;
@@ -465,6 +471,7 @@ out_dir="${defaults[out_dir]}"
 src_dir="${defaults[src_dir]}"
 recursive="${defaults[recursive]}"
 force="${defaults[force]}"
+watch="${defaults[watch]}"
 clean="${defaults[clean]}"
 burn_subs="${defaults[burn_subs]}"
 watermark="${defaults[watermark]}"
@@ -569,138 +576,192 @@ if [[ $ffmpeg_executable =~ ".exe" ]]; then
     fi
 fi
 
-# Grab all source videos
+if [[ $watch == true ]]; then
+    echo "Watch mode enabled"
+fi
+
+# Create temporary metadata files
+tmp_encoder_id=$( date +%s%N | sha1sum ); tmp_encoder_id=${tmp_encoder_id:0:16}
+tmp_vid_enc_list=$( readlink -f "$out_dir" )/.batch-enc-list-$tmp_encoder_id
+tmp_vid_enc_watch_list=$( readlink -f "$out_dir" )/.batch-enc-watch-list-$tmp_encoder_id
+tmp_vid_enc_watch_sync=$( readlink -f "$out_dir" )/.batch-enc-watch-lock-$tmp_encoder_id
+
+encoder_tmp_files=("$tmp_vid_enc_list" "$tmp_vid_enc_watch_list" "$tmp_vid_enc_watch_sync")
+encoder_tmp_files_strings=
+for tmp_file in ${encoder_tmp_files[@]}; do
+    echo -n "" > "$tmp_file"
+    encoder_tmp_files_strings+="\"$tmp_file\" "
+
+    if [[ $? -gt 0 ]]; then
+        echo "Couldn't write temp file \"$tmp_file\""
+        exit 1
+    fi
+done
+
+# Remove temporary files on Ctrl-C (SIGINT)
+read -rd '' trap_handler <<'BASH'
+    files=(TMP_FILES)
+
+    for file in ${files[@]}; do
+        if [[ -f "$file" ]]; then
+            rm "$file"
+        fi
+    done
+
+    echo -e "Exiting batch encoder"
+    exit
+BASH
+trap "${trap_handler//TMP_FILES/$encoder_tmp_files_strings}" INT
+
+# Initially empty $videos array
 videos=()
-IFS=$'\n'
-shopt -s nocaseglob
 
-if [[ $recursive == true ]]; then
-    echo -e "\nSearching recursively for video sources..."
-    curdir_files="$( cd "$src_dir"; ls -1 )"
+# (Maybe recursively) find all videos in the current directory and populate $videos
+# array with them
+find_initial_source_videos() {
+    videos=()
+    IFS=$'\n'
+    shopt -s nocaseglob
 
-    for file in $curdir_files; do
-        if [[ -d "$src_dir/$file" ]]; then
-            curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi} 2> /dev/null )"
-            for video in $curdir_videos; do
-                videos+=("$file/$video")
-            done
-        fi
-    done
-else
-    echo -e "\nSearching current directory for video sources..."
-    curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi} 2> /dev/null )"
+    if [[ $recursive == true ]]; then
+        echo -e "\nSearching recursively for video sources..."
+        curdir_files="$( cd "$src_dir"; ls -1 )"
 
-    for video in $curdir_videos; do
-        videos+=("$video")
-    done
-fi
-
-# Exit if no videos found
-if [[ ${#videos[@]} == 0 ]]; then
-    echo "No videos found"
-    exit 0
-fi
-
-video_details=()
-video_count=${#videos[@]}
-echo "Found $video_count videos"
-echo -e "\n\e[95m\e[1mProcessing videos...\e[0m"
-
-# Gather preliminary information about the videos
-cur_video_index=1
-for video in ${videos[@]}; do
-    vid_dir="$( dirname "$video" )"
-    vid_dir_print="$( dirname "$video" )/"
-    vid_file="$( basename "$video" )"
-
-    # Don't print dir if it's just './'
-    vid_dir_print=${vid_dir_print#./}
-    echo -e "\nProcessing [$cur_video_index/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
-
-    streams=
-    vid_out="$vid_dir/${vid_file%.*}.mp4"
-    cur_vid_auto=$auto
-    cur_vid_details=
-    video_stream=
-    audio_stream=
-    vid_burn_subs=$burn_subs
-
-    if [[ $cur_vid_auto == null ]]; then
-        confirm "Find streams automatically?" "y" && cur_vid_auto=true
-    fi
-
-    # Get list of all streams
-    streams=$( "$ffprobe_executable" "$( path "$src_dir/$video" )" 2>&1 ) # | grep 'Stream #0' )
-
-    # Duration line is independent of streams
-    vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
-
-    # Get all video streams' (estimated) frame counts
-    vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" )"
-    cur_vid_vid_streams=()
-    cur_vid_stream=1
-
-    # Loop all possible video streams
-    while true; do
-        cur_vid_stream_details="$( echo "$vid_video_streams" | sed -ne "${cur_vid_stream},0p" )"
-
-        # No more streams to process
-        [[ -z $cur_vid_stream_details ]] && break
-
-        vid_stream_framecount="$( get_stream_framecount "$( echo -en "$vid_duration_line\n$cur_vid_stream_details" )" )"
-        cur_vid_vid_streams+=("$vid_stream_framecount")
-
-        (( cur_vid_stream++ ))
-    done
-
-    # Determine streams either automatically or by prompt
-    if [[ $cur_vid_auto == true ]]; then
-        # Burns subs automatically too (mirroring Meow's original script)
-        [[ $vid_burn_subs == null ]] && vid_burn_subs=true
+        for file in $curdir_files; do
+            if [[ -d "$src_dir/$file" ]]; then
+                curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi} 2> /dev/null )"
+                for video in $curdir_videos; do
+                    videos+=("$file/$video")
+                done
+            fi
+        done
     else
-        # Filter non video/audio/subtitle streams
-        vid_sed_filter_stream_options=(-n -e '/Video|Audio|Subtitle/p')
+        echo -e "\nSearching current directory for video sources..."
+        curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi} 2> /dev/null )"
 
-        if [[ $verbose_streams == true ]]; then
-            vid_sed_filter_stream_options=()
+        for video in $curdir_videos; do
+            videos+=("$video")
+        done
+    fi
+
+    # Exit if no videos found
+    if [[ ${#videos[@]} == 0 ]] && [[ $watch == false ]]; then
+        echo "No videos found"
+        exit 0
+    fi
+}
+
+# Initially empty video details
+video_details=()
+
+# Process all videos in the global $videos array and save the results to
+# $video_details
+process_videos() {
+    local is_watch_invocation=$1
+
+    video_details=()
+    video_count=${#videos[@]}
+    echo "Found $video_count videos""$is_watch_invocation"
+    echo -e "\n\e[95m\e[1mProcessing videos...\e[0m"
+
+    # Gather preliminary information about the videos
+    cur_video_index=1
+    for video in ${videos[@]}; do
+        vid_dir="$( dirname "$video" )"
+        vid_dir_print="$( dirname "$video" )/"
+        vid_file="$( basename "$video" )"
+
+        # Add video to list of to-be-encoded videos
+        echo "$( readlink -f "$video" )" >> "$tmp_vid_enc_list"
+
+        # Don't print dir if it's just './'
+        vid_dir_print=${vid_dir_print#./}
+        echo -e "\nProcessing [$cur_video_index/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
+
+        streams=
+        vid_out="$vid_dir/${vid_file%.*}.mp4"
+        cur_vid_auto=$auto
+        cur_vid_details=
+        video_stream=
+        audio_stream=
+        vid_burn_subs=$burn_subs
+
+        if [[ $cur_vid_auto == null ]]; then
+            confirm "Find streams automatically?" "y" && cur_vid_auto=true
         fi
 
-        # Print streams human-readable
-        echo "$streams" | grep 'Stream #0' | sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
+        # Get list of all streams
+        streams=$( "$ffprobe_executable" "$( path "$src_dir/$video" )" 2>&1 ) # | grep 'Stream #0' )
 
-        echo -n "Select Video: "
-        read video_stream
-        echo -n "Select Audio: "
-        read audio_stream
+        # Duration line is independent of streams
+        vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
 
-        video_stream=$( echo "$video_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
-        audio_stream=$( echo "$audio_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
-    fi
+        # Get all video streams' (estimated) frame counts
+        vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" )"
+        cur_vid_vid_streams=()
+        cur_vid_stream=1
 
-    # Detect subtitle streams
-    cur_vid_has_subtitles=true
+        # Loop all possible video streams
+        while true; do
+            cur_vid_stream_details="$( echo "$vid_video_streams" | sed -ne "${cur_vid_stream},0p" )"
 
-    if [[ -z "$( grep -E "Stream #.+Subtitle" <<< "$streams" )" ]]; then
-        cur_vid_has_subtitles=false
-    fi
+            # No more streams to process
+            [[ -z $cur_vid_stream_details ]] && break
 
-    if [[ $vid_burn_subs == null ]]; then
-        if [[ $cur_vid_has_subtitles == true ]]; then
-            confirm "Burn subtitles?" "n" && vid_burn_subs=true
+            vid_stream_framecount="$( get_stream_framecount "$( echo -en "$vid_duration_line\n$cur_vid_stream_details" )" )"
+            cur_vid_vid_streams+=("$vid_stream_framecount")
+
+            (( cur_vid_stream++ ))
+        done
+
+        # Determine streams either automatically or by prompt
+        if [[ $cur_vid_auto == true ]]; then
+            # Burns subs automatically too (mirroring Meow's original script)
+            [[ $vid_burn_subs == null ]] && vid_burn_subs=true
         else
-            echo "No subtitles detected"
+            # Filter non video/audio/subtitle streams
+            vid_sed_filter_stream_options=(-n -e '/Video|Audio|Subtitle/p')
+
+            if [[ $verbose_streams == true ]]; then
+                vid_sed_filter_stream_options=()
+            fi
+
+            # Print streams human-readable
+            echo "$streams" | grep 'Stream #0' | sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
+
+            echo -n "Select Video: "
+            read video_stream
+            echo -n "Select Audio: "
+            read audio_stream
+
+            video_stream=$( echo "$video_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
+            audio_stream=$( echo "$audio_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
         fi
-    fi
 
-    # No matter the settings, disable burning subtitles for this
-    # video since it doesn't have any subtitles
-    if [[ $cur_vid_has_subtitles == false ]]; then
-        vid_burn_subs=false
-    fi
+        # Detect subtitle streams
+        cur_vid_has_subtitles=true
 
-    IFS=':'
-    # Save video details' struct
-    cur_vid_details=$(cat <<VID
+        if [[ -z "$( grep -E "Stream #.+Subtitle" <<< "$streams" )" ]]; then
+            cur_vid_has_subtitles=false
+        fi
+
+        if [[ $vid_burn_subs == null ]]; then
+            if [[ $cur_vid_has_subtitles == true ]]; then
+                confirm "Burn subtitles?" "n" && vid_burn_subs=true
+            else
+                echo "No subtitles detected"
+            fi
+        fi
+
+        # No matter the settings, disable burning subtitles for this
+        # video since it doesn't have any subtitles
+        if [[ $cur_vid_has_subtitles == false ]]; then
+            vid_burn_subs=false
+        fi
+
+        IFS=':'
+        # Save video details' struct
+        cur_vid_details=$(cat <<VID
 VIDEO:$video
 VIDEO_OUT:$vid_out
 AUTO:$cur_vid_auto
@@ -711,9 +772,10 @@ BURNSUBS:$vid_burn_subs
 VID
 )
 
-    video_details+=("$cur_vid_details")
-    (( cur_video_index++ ))
-done
+        video_details+=("$cur_vid_details")
+        (( cur_video_index++ ))
+    done
+}
 
 # Required FFmpeg args
 ffmpeg_input_args=(
@@ -741,118 +803,232 @@ if [[ $debug_run == true ]]; then
     ffmpeg_output_args+=(-t $debug_run_dur)
 fi
 
-echo -e "\n\e[95m\e[1mEncoding videos...\e[0m"
+# Start encoding videos in the $video_details array containing information 
+# gathered from processing step
+start_encoding() {
+    echo -e "\n\e[95m\e[1mEncoding videos...\e[0m"
 
-# Start encoding videos with information gathered from previous step
-cur_video_index=0
-for details in "${video_details[@]}"; do
-    (( cur_video_index++ ))
-    video="$( get_detail "VIDEO" "$details" )"
-    video_out="$( get_detail "VIDEO_OUT" "$details" )"
-    vid_auto="$( get_detail "AUTO" "$details" )"
-    video_stream="$( get_detail "VSTREAM" "$details" )"
-    audio_stream="$( get_detail "ASTREAM" "$details" )"
-    vid_burn_subs="$( get_detail "BURNSUBS" "$details" )"
-    vid_res=$res
+    cur_video_index=0
+    for details in "${video_details[@]}"; do
+        (( cur_video_index++ ))
+        video="$( get_detail "VIDEO" "$details" )"
+        video_out="$( get_detail "VIDEO_OUT" "$details" )"
+        vid_auto="$( get_detail "AUTO" "$details" )"
+        video_stream="$( get_detail "VSTREAM" "$details" )"
+        audio_stream="$( get_detail "ASTREAM" "$details" )"
+        vid_burn_subs="$( get_detail "BURNSUBS" "$details" )"
+        vid_res=$res
 
-    vid_abs_out="$out_dir/$video_out"
-    vid_abs_out_dir="$( dirname "$vid_abs_out" )"
+        vid_abs_out="$out_dir/$video_out"
+        vid_abs_out_dir="$( dirname "$vid_abs_out" )"
 
-    # Initialize video filters with watermark (if it exists)
-    if [[ $use_watermark == true ]]; then
-        vid_filter_args=("ass=\\'$( path "$watermark" )\\'")
-    else
-        vid_filter_args=()
-    fi
+        # Initialize video filters with watermark (if it exists)
+        if [[ $use_watermark == true ]]; then
+            vid_filter_args=("ass=\\'$( path "$watermark" )\\'")
+        else
+            vid_filter_args=()
+        fi
 
-    # Make local copy of ffmpeg output args
-    vid_output_args=("${ffmpeg_output_args[@]}")
+        # Make local copy of ffmpeg output args
+        vid_output_args=("${ffmpeg_output_args[@]}")
 
-    # Major video path components split for formatting purposes
-    # Don't print dir if it's just './'
-    vid_dir="$( dirname "$video" )/"
-    vid_dir=${vid_dir#./}
-    vid_file="$( basename "$video" )"
+        # Major video path components split for formatting purposes
+        # Don't print dir if it's just './'
+        vid_dir="$( dirname "$video" )/"
+        vid_dir=${vid_dir#./}
+        vid_file="$( basename "$video" )"
 
-    vid_out_dir="$( dirname "$video_out" )/"
-    vid_out_dir=${vid_out_dir#./}
-    vid_out_file="$( basename "$video_out" )"
+        vid_out_dir="$( dirname "$video_out" )/"
+        vid_out_dir=${vid_out_dir#./}
+        vid_out_file="$( basename "$video_out" )"
 
-    # Skip video if it exists and force(fully overwriting) isn't enabled
-    if [[ $force != true ]] && [[ -f "$vid_abs_out" ]]; then
-        echo -e "\nSkipping [$cur_video_index/$video_count] \e[32m$vid_dir\e[92m$vid_file\e[0m..."
-        continue
-    fi
+        # Skip video if it exists and force(fully overwriting) isn't enabled
+        if [[ $force != true ]] && [[ -f "$vid_abs_out" ]]; then
+            echo -e "\nSkipping [$cur_video_index/$video_count] \e[32m$vid_dir\e[92m$vid_file\e[0m..."
+            continue
+        fi
 
-    # Choose different streams instead of the defaults
-    if [[ -n $video_stream ]] && [[ -n $audio_stream ]]; then
-        vid_output_args+=(-map 0:$video_stream -map 0:$audio_stream)
-    fi
+        # Choose different streams instead of the defaults
+        if [[ -n $video_stream ]] && [[ -n $audio_stream ]]; then
+            vid_output_args+=(-map 0:$video_stream -map 0:$audio_stream)
+        fi
 
-    # Burn subs
-    if [[ $vid_burn_subs == true ]]; then
-        # Because FFmpeg's video filters' parser has crazy rules for escaping...
-        # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
-        #
-        # Monstrosity of escaping inbound...
-        vid_filter_args+=("subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )")
-    fi
+        # Burn subs
+        if [[ $vid_burn_subs == true ]]; then
+            # Because FFmpeg's video filters' parser has crazy rules for escaping...
+            # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
+            #
+            # Monstrosity of escaping inbound...
+            vid_filter_args+=("subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )")
+        fi
 
-    # Create output dir if it doesn't exist already
-    if [[ ! -d "$vid_abs_out_dir" ]]; then
-        mkdir -p "$vid_abs_out_dir"
-        successfully_created_dir=$?
+        # Create output dir if it doesn't exist already
+        if [[ ! -d "$vid_abs_out_dir" ]]; then
+            mkdir -p "$vid_abs_out_dir"
+            successfully_created_dir=$?
 
-        if [[ $successfully_created_dir != 0 ]]; then
-            echo -e "\e[91mFatal:\e[0m Couldn't create output dir '$vid_abs_out_dir', aborting..."
+            if [[ $successfully_created_dir != 0 ]]; then
+                echo -e "\e[91mFatal:\e[0m Couldn't create output dir '$vid_abs_out_dir', aborting..."
+                exit 1
+            fi
+        fi
+
+        # Everything checks out, time to start encoding
+        echo -e "\nEncoding [$cur_video_index/$video_count] \e[32m$vid_out_dir\e[92m$vid_out_file\e[0m"
+        echo -e   "    from \e[90m$vid_dir$vid_file\e[0m"
+
+        # Check if video resolution is specified by user or automatic
+        [[ $vid_res == prompt ]] && vid_res=original
+
+        if [[ $vid_res != original ]]; then
+            # -1 and -2 maintain aspect ratio, but -2 will be divisible by 2 (and thus suitable for mp4/YUV 4:2:0)
+            # Grabbed from here: https://stackoverflow.com/a/29582287
+            vid_filter_args+=("scale=-2:$vid_res")
+        fi
+
+        # Append video filter args to output args
+        IFS=","
+        vid_output_args+=(-vf "${vid_filter_args[*]}")
+
+        # Print progress to stdout
+        vid_output_args+=(-progress pipe:1)
+
+        # Record start time and end time
+        vid_enc_start_time=$( date +%s )
+        echo -e "\e[90m[\e[36mstart\e[90m $( date +%X )]\e[0m"
+
+        # Finally, run FFmpeg
+        vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$src_dir/$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
+        run_ffmpeg "$details" "${vid_full_cmd[@]}"
+        encode_success=$?
+
+        # Print end and duration
+        vid_enc_end_time=$( date +%s )
+        echo -e '\e[2K\r\e[90m[\e[36m'"ended\e[90m $( date +%X )]\e[0m ($( human_duration "$(( vid_enc_end_time - vid_enc_start_time ))" ))"
+
+        if [[ $encode_success == 0 ]]; then
+            # Remove original video after encoding
+            if [[ $clean == true ]]; then
+                echo "Deleting original video '$src_dir/$video'..."
+                rm "$src_dir/$video"
+            fi
+        else
+            echo -e "\n\e[91mFatal:\e[0m FFmpeg failed, aborting..."
             exit 1
         fi
-    fi
+    done
+}
 
-    # Everything checks out, time to start encoding
-    echo -e "\nEncoding [$cur_video_index/$video_count] \e[32m$vid_out_dir\e[92m$vid_out_file\e[0m"
-    echo -e   "    from \e[90m$vid_dir$vid_file\e[0m"
-
-    # Check if video resolution is specified by user or automatic
-    [[ $vid_res == prompt ]] && vid_res=original
-
-    if [[ $vid_res != original ]]; then
-        # -1 and -2 maintain aspect ratio, but -2 will be divisible by 2 (and thus suitable for mp4/YUV 4:2:0)
-        # Grabbed from here: https://stackoverflow.com/a/29582287
-        vid_filter_args+=("scale=-2:$vid_res")
-    fi
-
-    # Append video filter args to output args
-    IFS=","
-    vid_output_args+=(-vf "${vid_filter_args[*]}")
-
-    # Print progress to stdout
-    vid_output_args+=(-progress pipe:1)
-
-    # Record start time and end time
-    vid_enc_start_time=$( date +%s )
-    echo -e "\e[90m[\e[36mstart\e[90m $( date +%X )]\e[0m"
-
-    # Finally, run FFmpeg
-    vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$src_dir/$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
-    run_ffmpeg "$details" "${vid_full_cmd[@]}"
-    encode_success=$?
-
-    # Print end and duration
-    vid_enc_end_time=$( date +%s )
-    echo -e "\r\e[90m[\e[36mended\e[90m $( date +%X )]\e[0m ($( human_duration "$(( vid_enc_end_time - vid_enc_start_time ))" ))"
-
-    if [[ $encode_success == 0 ]]; then
-        # Remove original video after encoding
-        if [[ $clean == true ]]; then
-            echo "Deleting original video '$src_dir/$video'..."
-            rm "$src_dir/$video"
-        fi
-    else
-        echo -e "\n\e[91mFatal:\e[0m FFmpeg failed, aborting..."
+# Start by either encoding then watching source directory for new videos or just
+# encoding once
+if [[ $watch == true ]]; then
+    if ! which inotifywait 1> /dev/null 2>&1; then
+        echo -e '\n'"Error: Watch mode requires $( b inotifywait )"
         exit 1
     fi
-done
 
-echo -e "\n\e[92mEncoded $video_count videos successfully\e[0m"
+    # Prevent watching on the '/' root directory, this restriction could be lifted
+    # later. However, there's no reason to allow it now.
+    if [[ $( readlink -f "$src_dir" ) == "/" ]]; then
+        echo -e '\n'"Error: Can't watch on the root directory '/'"
+        exit 1
+    fi
+
+    # Get initial $videos
+    find_initial_source_videos
+    processed_initial_videos=false
+    last_iteration_encoding=false
+
+    WATCH_MAX_WAIT=5 # in seconds
+    watch_last_wait_time=$SECONDS
+    watch_last_read_count=1
+
+    # Startup inotifywait in the background
+    ( inotifywait -mr --format '%e %w%f' -e close_write -e moved_to "$src_dir" 2> /dev/null |
+        while read event; do
+            event_target=${event#* }
+            event_type=$( grep -Eo '^[^ ]+' <<< "$event" )
+
+            if [[ $event_target =~ .+\.(mkv|avi)$ ]]; then
+                # We got a new file, add it to the list of videos
+                echo "$event_target" >> "$tmp_vid_enc_watch_list"
+                echo -n "#" >> "$tmp_vid_enc_watch_sync"
+            fi
+        done ) &
+
+    # Watch for new files and encode them after the current encode (if any)
+    # finishes
+    while true; do
+        # Process existing videos first before watching for new files.
+        # Note that watching is still active, we just encode existing
+        # videos first
+        if [[ $processed_initial_videos == false ]]; then
+            process_videos
+            start_encoding
+            processed_initial_videos=true
+            last_iteration_encoding=true
+
+            # Empty video list and video detail list
+            videos=()
+            video_details=()
+            continue
+        else
+            cur_watch_list=$(< "$tmp_vid_enc_watch_list")
+            cur_watch_list_sync=$(< "$tmp_vid_enc_watch_sync")
+
+            # Check if there are any newer videos listed
+            if [[ "${#cur_watch_list_sync} + 1" -gt $watch_last_read_count ]]; then
+                while read new_video_file; do
+                    videos+=("$new_video_file")
+
+                    # Increase last read video count
+                    (( watch_last_read_count++ ))
+                done <<< "$( sed -nEe "$watch_last_read_count,\$p" <<< "$cur_watch_list" )"
+
+                # Reset timer after getting new videos
+                watch_last_wait_time=$SECONDS
+            else
+                # We didn't get any new videos. Check if wait time has
+                # elapsed so we can start encoding the new files that we
+                # do have (if any)
+                if [[ $SECONDS -gt "$watch_last_wait_time + $WATCH_MAX_WAIT" ]]; then
+                    # Check if any new videos were discovered and encode them
+                    if [[ ${#videos[@]} -gt 0 ]]; then
+                        process_videos " while watching"
+                        start_encoding
+                        last_iteration_encoding=true
+
+                        # Empty video list and video detail list
+                        videos=()
+                        video_details=()
+                        watch_last_wait_time=$SECONDS
+                        continue
+                    fi
+
+                    # Reset timer waiting for new videos
+                    watch_last_wait_time=$SECONDS
+                fi
+            fi
+        fi
+
+        if [[ $last_iteration_encoding == true ]]; then
+            echo -e '\n'"$( b "Watching for new videos..." )\n"
+        fi
+
+        last_iteration_encoding=false
+        sleep 1
+    done
+else
+    # Just encode once without watching
+    find_initial_source_videos
+    process_videos
+    start_encoding
+
+    echo -e "\n\e[92mEncoded $video_count videos successfully\e[0m"
+fi
+
+if [[ $watch == false ]]; then
+    # Clean up temporary files
+    rm "$tmp_vid_enc_list"
+fi
 
