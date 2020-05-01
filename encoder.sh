@@ -598,6 +598,14 @@ for tmp_file in ${encoder_tmp_files[@]}; do
     fi
 done
 
+remove_temporary_files() {
+    for file in ${encoder_tmp_files[@]}; do
+        if [[ -f $file ]]; then
+            rm "$file"
+        fi
+    done
+}
+
 # Remove temporary files on Ctrl-C (SIGINT)
 read -rd '' trap_handler <<'BASH'
     files=(TMP_FILES)
@@ -612,6 +620,12 @@ read -rd '' trap_handler <<'BASH'
     exit
 BASH
 trap "${trap_handler//TMP_FILES/$encoder_tmp_files_strings}" INT
+
+# Batch Encoder custom exit
+be_exit() {
+    remove_temporary_files
+    exit $1
+}
 
 # Initially empty $videos array
 videos=()
@@ -647,7 +661,7 @@ find_initial_source_videos() {
     # Exit if no videos found
     if [[ ${#videos[@]} == 0 ]] && [[ $watch == false ]]; then
         echo "No videos found"
-        exit 0
+        be_exit 0
     fi
 }
 
@@ -869,7 +883,7 @@ start_encoding() {
 
             if [[ $successfully_created_dir != 0 ]]; then
                 echo -e "\e[91mFatal:\e[0m Couldn't create output dir '$vid_abs_out_dir', aborting..."
-                exit 1
+                be_exit 1
             fi
         fi
 
@@ -914,7 +928,7 @@ start_encoding() {
             fi
         else
             echo -e "\n\e[91mFatal:\e[0m FFmpeg failed, aborting..."
-            exit 1
+            be_exit 1
         fi
     done
 }
@@ -924,14 +938,14 @@ start_encoding() {
 if [[ $watch == true ]]; then
     if ! which inotifywait 1> /dev/null 2>&1; then
         echo -e '\n'"Error: Watch mode requires $( b inotifywait )"
-        exit 1
+        be_exit 1
     fi
 
     # Prevent watching on the '/' root directory, this restriction could be lifted
     # later. However, there's no reason to allow it now.
     if [[ $( readlink -f "$src_dir" ) == "/" ]]; then
         echo -e '\n'"Error: Can't watch on the root directory '/'"
-        exit 1
+        be_exit 1
     fi
 
     # Get initial $videos
