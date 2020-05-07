@@ -289,6 +289,11 @@ OPTIONS
         Watch source directory recursively for new 
         videos.
 
+    --watch-rescan
+        Rescan the source directory on every file
+        change event; don't trust inotify's
+        information. Default on WSL.
+
     --debug-run [DURATION]
         Test encoder by only encoding (optional) 
         DURATION in seconds of videos. When 
@@ -318,6 +323,7 @@ defaults[out_dir]=null                 # Output directory
 defaults[recursive]=null               # Recursively encode subdirs
 defaults[force]=false                  # Overwrites existing encodes
 defaults[watch]=false                  # Watch source directory for new videos
+defaults[watch_rescan]=false           # Rescan the source dir for every inotify event
 defaults[clean]=false                  # Removes original video after encoding
 defaults[burn_subs]=null               # Burns subtitles into videos
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
@@ -427,6 +433,9 @@ while true; do
                     --watch )
                         defaults[watch]=true
                         ;;
+                    --watch-rescan )
+                        defaults[watch_rescan]=true
+                        ;;
                     --clean )
                         defaults[clean]=true
                         ;;
@@ -472,6 +481,7 @@ src_dir="${defaults[src_dir]}"
 recursive="${defaults[recursive]}"
 force="${defaults[force]}"
 watch="${defaults[watch]}"
+watch_rescan="${defaults[watch_rescan]}"
 clean="${defaults[clean]}"
 burn_subs="${defaults[burn_subs]}"
 watermark="${defaults[watermark]}"
@@ -558,6 +568,9 @@ if [[ $IS_WINDOWS == true ]]; then
 
     src_dir="$( check_windows_path "$src_dir" )"
     out_dir="$( check_windows_path "$out_dir" )"
+
+    # Force watch rescans (inotify doesn't work properly on WSL)
+    watch_rescan=true
 fi
 
 # Remove any repeating slashes (if any)
@@ -632,13 +645,14 @@ videos=()
 
 # (Maybe recursively) find all videos in the current directory and populate $videos
 # array with them
-find_initial_source_videos() {
+find_source_videos() {
+    local quiet="$1"
     videos=()
     IFS=$'\n'
     shopt -s nocaseglob
 
     if [[ $recursive == true ]]; then
-        echo -e "\nSearching recursively for video sources..."
+        [[ -z $quiet ]] && echo -e "\nSearching recursively for video sources..."
         curdir_files="$( cd "$src_dir"; ls -1 )"
 
         for file in $curdir_files; do
@@ -650,7 +664,7 @@ find_initial_source_videos() {
             fi
         done
     else
-        echo -e "\nSearching current directory for video sources..."
+        [[ -z $quiet ]] && echo -e "\nSearching current directory for video sources..."
         curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi} 2> /dev/null )"
 
         for video in $curdir_videos; do
@@ -660,7 +674,7 @@ find_initial_source_videos() {
 
     # Exit if no videos found
     if [[ ${#videos[@]} == 0 ]] && [[ $watch == false ]]; then
-        echo "No videos found"
+        [[ -z $quiet ]] && echo "No videos found"
         be_exit 0
     fi
 }
@@ -684,9 +698,6 @@ process_videos() {
         vid_dir="$( dirname "$video" )"
         vid_dir_print="$( dirname "$video" )/"
         vid_file="$( basename "$video" )"
-
-        # Add video to list of to-be-encoded videos
-        echo "$( readlink -f "$video" )" >> "$tmp_vid_enc_list"
 
         # Don't print dir if it's just './'
         vid_dir_print=${vid_dir_print#./}
@@ -949,24 +960,62 @@ if [[ $watch == true ]]; then
     fi
 
     # Get initial $videos
-    find_initial_source_videos
+    find_source_videos
     processed_initial_videos=false
     last_iteration_encoding=false
 
     WATCH_MAX_WAIT=5 # in seconds
     watch_last_wait_time=$SECONDS
     watch_last_read_count=1
+    watch_event_last_wait_time=$SECONDS
+
+    # Default events to listen for (on Linux)
+    inotify_event_args=(-e close_write -e moved_to)
+    inotify_read_args=()
+
+    # Empty array to make inotify listen to any and all events
+    if [[ $watch_rescan == true ]]; then
+        inotify_event_args=()
+        inotify_read_args=(-t 5)
+    fi
 
     # Startup inotifywait in the background
-    ( inotifywait -mr --format '%e %w%f' -e close_write -e moved_to "$src_dir" 2> /dev/null |
-        while read event; do
-            event_target=${event#* }
-            event_type=$( grep -Eo '^[^ ]+' <<< "$event" )
+    ( inotifywait -mr --format '%e %w%f' "${inotify_event_args[@]}" "$src_dir" 2> /dev/null |
+        while read "${inotify_read_args[@]}" event || true; do
+            if [[ $watch_rescan == true ]]; then
+                # Debounce
+                if [[ "$watch_event_last_wait_time + $WATCH_MAX_WAIT" -lt $SECONDS ]]; then
+                    # Since we're not in a reliable environment, run a dir
+                    # scan on every inotify event
+                    find_source_videos true
 
-            if [[ $event_target =~ .+\.(mkv|avi)$ ]]; then
-                # We got a new file, add it to the list of videos
-                echo "$event_target" >> "$tmp_vid_enc_watch_list"
-                echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                    for video in "${videos[@]}"; do
+                        cur_video_abs_path="$( readlink -f "$video" )"
+
+                        # Add the video if it wasn't listed before
+                        if ! grep -qF -e "$cur_video_abs_path" "$tmp_vid_enc_list"; then
+                            echo "$cur_video_abs_path" >> "$tmp_vid_enc_list"
+
+                            # Add video to watch list to be caught by main
+                            # batch encoder process
+                            echo "$video" >> "$tmp_vid_enc_watch_list"
+                            echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                        fi
+                    done
+
+                    watch_event_last_wait_time=$SECONDS
+                fi
+            else
+                # We're in a reliable environment (Linux) and can trust
+                # inotify's file change events
+                event_target=${event#* }
+                event_type=$( grep -Eo '^[^ ]+' <<< "$event" )
+
+                if [[ $event_target =~ .+\.(mkv|avi)$ ]]; then
+                    # We got a new file, add it to the list of videos
+                    echo "$event_target" >> "$tmp_vid_enc_watch_list"
+                    echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                fi
             fi
         done ) &
 
@@ -981,6 +1030,14 @@ if [[ $watch == true ]]; then
             start_encoding
             processed_initial_videos=true
             last_iteration_encoding=true
+
+            if [[ $watch_rescan == true ]]; then
+                # Add processed videos to the list to skip
+                # processing them again
+                for video in "${videos[@]}"; do
+                    echo "$( readlink -f "$video" )" >> "$tmp_vid_enc_list"
+                done
+            fi
 
             # Empty video list and video detail list
             videos=()
@@ -1034,7 +1091,7 @@ if [[ $watch == true ]]; then
     done
 else
     # Just encode once without watching
-    find_initial_source_videos
+    find_source_videos
     process_videos
     start_encoding
 
