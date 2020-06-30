@@ -153,7 +153,7 @@ run_ffmpeg() {
         local cur_vid_stream_frames=
         local cur_vid_stream_duration=
 
-        IFS=','
+        local IFS=','
         for part in $vid_s_frames; do
             case ${vid_stream_info_acts[0]} in
                 stream_id )
@@ -176,7 +176,7 @@ run_ffmpeg() {
 
     # Start FFmpeg
     "${ffmpeg_cmd[@]}" 2> "$tmp_vid_ffmpeg_errors" |
-        while read line; do
+        while read -r line; do
             local key="${line%=*}"
             local value="${line#*=}"
 
@@ -545,9 +545,9 @@ fi
 # If we're running Windows make sure we have a win 2 *nix path converter around
 if [[ $IS_WINDOWS == true ]]; then
     # Check for either wslpath or cygpath
-    if which wslpath 2>&1 > /dev/null; then
+    if which wslpath &> /dev/null; then
         HAS_WSLPATH=true
-    elif which cygpath 2>&1 > /dev/null; then
+    elif which cygpath &> /dev/null; then
         HAS_CYGPATH=true
     else
         echo "On Windows either 'wslpath' or 'cygpath.exe' is required."
@@ -580,7 +580,7 @@ ffprobe_executable=$( echo -n "$ffprobe_executable" | tr -s / )
 echo "Found FFmpeg: $ffmpeg_executable"
 echo "Found FFprobe: $ffprobe_executable"
 
-if [[ $ffmpeg_executable =~ ".exe" ]]; then
+if [[ $ffmpeg_executable =~ .exe ]]; then
     if ! which wslpath 2>&1 > /dev/null; then
         echo "WSLpath command not installed in your PATH, aborting..."
         exit 1
@@ -694,7 +694,7 @@ process_videos() {
 
     # Gather preliminary information about the videos
     cur_video_index=1
-    for video in ${videos[@]}; do
+    for video in "${videos[@]}"; do
         vid_dir="$( dirname "$video" )"
         vid_dir_print="$( dirname "$video" )/"
         vid_file="$( basename "$video" )"
@@ -1035,7 +1035,7 @@ if [[ $watch == true ]]; then
                 # Add processed videos to the list to skip
                 # processing them again
                 for video in "${videos[@]}"; do
-                    echo "$( readlink -f "$video" )" >> "$tmp_vid_enc_list"
+                    readlink -f "$video" >> "$tmp_vid_enc_list"
                 done
             fi
 
@@ -1049,7 +1049,7 @@ if [[ $watch == true ]]; then
 
             # Check if there are any newer videos listed
             if [[ "${#cur_watch_list_sync} + 1" -gt $watch_last_read_count ]]; then
-                while read new_video_file; do
+                while read -r new_video_file; do
                     videos+=("$new_video_file")
 
                     # Increase last read video count
