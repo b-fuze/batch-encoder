@@ -231,14 +231,25 @@ run_ffmpeg() {
 }
 
 # Main script logic
+usage_section() {
+    local section=$1
+    local usage=$2
+    local cur_section=${defaults[help_section]}
+
+    if [[ $section == always || $section == $cur_section || $cur_section == all ]]; then
+        echo -n "$usage"
+    fi
+}
 
 # Print usage/help
 usage() {
-    cat <<EOF
+    echo -n "
 USAGE
-    encoder [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
-            [--burn-subs] [--watermark FILE] [--clean] [--force]
-    encoder -h | --help
+    encoder.sh [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
+               [--burn-subs] [--watermark FILE] [--clean] [--force]
+               [-w] [--watch-rescan] [--debug-run [DUR]] [--fatal]
+               [--verbose-streams]
+    encoder.sh -h | --help
 
 DESCRIPTION
     Encode all MKV and AVI videos in the current
@@ -247,39 +258,45 @@ DESCRIPTION
     listed below or interactive prompts in the
     absence of such arguments.
 
-OPTIONS
+OPTIONS" | sed -Ee '1d'
+
+    usage_section all "
     sub dub
         Whether to encode subbed or dubbed.
-        Defaults to subbed.
-
-    -r --resolution RES
+        Defaults to subbed. Noop.
+"
+    usage_section basic "
+    -r, --resolution RES
         RES can be one of $( b 240 ), $( b 360 ), $( b 480 ), $( b 640 ), $( b 720 ),
         $( b 1080 ), or $( b original ). Original by default.
 
-    -a --auto --no-auto
+    -a, --auto, --no-auto
         Automatically determine appropriate audio
         and video streams. Implies --burn-subs
         in the absence of --no-burn-subs. Prompts
         by default.
 
-    --burn-subs --no-burn-subs
+    --burn-subs, --no-burn-subs
         Burn subtitles. Prompts by default.
-
-    --watermark FILE --no-watermark
+"
+    usage_section advanced "
+    --watermark FILE, --no-watermark
         Use a watermark .ass FILE. Defaults to
         AU watermark if it exists.
-
-    -s --source DIR
+"
+    usage_section basic "
+    -s, --source DIR
         Source directory for encodes. Defaults to
         current directory.
 
-    -d --destination DIR
+    -d, --destination DIR
         Destination directory for all encodes.
         Will create the directory it it doesn't
         already exist. Defaults to source
         directory.
-
-    -R --recursive
+"
+    usage_section advanced "
+    -R, --recursive
         Whether to recursively search subdirs for
         videos to encode. Won't by default.
 
@@ -288,32 +305,41 @@ OPTIONS
 
     --force
         Overwrite existing videos. Won't by default.
-
-    -w --watch
+"
+    usage_section basic "
+    -w, --watch
         Watch source directory recursively for new 
         videos.
-
+"
+    usage_section advanced "
     --watch-rescan
         Rescan the source directory on every file
         change event; don't trust inotify's
         information. Default on WSL.
-
+"
+    usage_section debug "
     --debug-run [DURATION]
         Test encoder by only encoding (optional) 
         DURATION in seconds of videos. When 
         DURATION is omitted it defaults to 5
         seconds.
+"
+    usage_section advanced "
     --fatal
         Consider FFmpeg errors fatal and stop encoding
         all videos.
 
     --verbose-streams
         Print all streams and don't exclusively filter
-        video, audio, and subtitle streams
+        video, audio, and subtitle streams.
+"
+    usage_section always "
+    -h, --help
+        Show simplfied help.
 
-    -h --help
-        Show this help.
-EOF
+    --help-advanced, --help-debug, --help-all
+        Show help from advanced sections.
+"
 }
 
 # Data dir with watermark (same as script folder)
@@ -339,6 +365,7 @@ defaults[debug_run]=false              # Only encode short durations of the vide
 defaults[debug_run_dur]=5              # Debug run duration
 defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
+defaults[help_section]=""              # Help section to choose from: basic, advanced, debug, all
 
 arg_mapping[-r]=--resolution
 arg_mapping[-a]=--auto
@@ -461,10 +488,21 @@ while true; do
                     --verbose-streams )
                         defaults[verbose_streams]=true
                         ;;
+                    --help-advanced )
+                        # Print help and quit
+                        defaults[help_section]=advanced
+                        ;;
+                    --help-debug )
+                        # Print help and quit
+                        defaults[help_section]=debug
+                        ;;
+                    --help-all )
+                        # Print help and quit
+                        defaults[help_section]=all
+                        ;;
                     --help )
                         # Print help and quit
-                        usage
-                        exit 0
+                        defaults[help_section]=basic
                         ;;
 
                     # Sub/dub
@@ -483,6 +521,11 @@ while true; do
     # Process next arg
     shift && cur_arg="$1" || break
 done
+
+if [[ -n ${defaults[help_section]} ]]; then
+    usage
+    exit 0
+fi
 
 # Deconstruct default variables
 res="${defaults[res]}"
