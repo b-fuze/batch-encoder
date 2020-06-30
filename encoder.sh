@@ -139,13 +139,15 @@ run_ffmpeg() {
 
     # Create temporary file to store FFmpeg errors
     local tmp_vid_ffmpeg_errors=$( dirname "$tmp_vid_enc_list" )/.batch-enc-ffmpeg-err-$tmp_encoder_id
+    encoder_tmp_files+=("$tmp_vid_ffmpeg_errors")
     echo -n "" > "$tmp_vid_ffmpeg_errors"
 
     shift
     local ffmpeg_cmd=("${@}")
 
     # Mapping of stream id's to video stream frame counts and duration
-    IFS=':'
+    # TODO: Cleanup. This is probably over-engineered and useless
+    local IFS=':'
     declare -A vid_stream_frames
     for vid_s_frames in $vid_frames; do
         local vid_stream_info_acts=(stream_id frames duration)
@@ -218,6 +220,7 @@ run_ffmpeg() {
     # print it to the user in case of error
     if [[ $ffmpeg_status == 0 ]]; then
         rm "$tmp_vid_ffmpeg_errors"
+        unset encoder_tmp_files[-1]
     else
         echo "FFmpeg error log: $tmp_vid_ffmpeg_errors"
     fi
@@ -600,43 +603,27 @@ tmp_vid_enc_watch_list=$( readlink -f "$out_dir" )/.batch-enc-watch-list-$tmp_en
 tmp_vid_enc_watch_sync=$( readlink -f "$out_dir" )/.batch-enc-watch-lock-$tmp_encoder_id
 
 encoder_tmp_files=("$tmp_vid_enc_list" "$tmp_vid_enc_watch_list" "$tmp_vid_enc_watch_sync")
-encoder_tmp_files_strings=
-for tmp_file in ${encoder_tmp_files[@]}; do
-    echo -n "" > "$tmp_file"
-    encoder_tmp_files_strings+="\"$tmp_file\" "
-
-    if [[ $? -gt 0 ]]; then
-        echo "Couldn't write temp file \"$tmp_file\""
-        exit 1
-    fi
-done
-
-remove_temporary_files() {
-    for file in ${encoder_tmp_files[@]}; do
-        if [[ -f $file ]]; then
-            rm "$file"
-        fi
-    done
-}
 
 # Remove temporary files on Ctrl-C (SIGINT)
-read -rd '' trap_handler <<'BASH'
-    files=(TMP_FILES)
-
-    for file in ${files[@]}; do
+cleanup() {
+    local normal_exit=$1
+    for file in "${encoder_tmp_files[@]}"; do
         if [[ -f "$file" ]]; then
             rm "$file"
         fi
     done
 
-    echo -e "Exiting batch encoder"
+    if [[ -z $normal_exit ]]; then
+        echo -e '\e[?25h\e[2K\r'"Exiting batch encoder"
+    fi
     exit
-BASH
-trap "${trap_handler//TMP_FILES/$encoder_tmp_files_strings}" INT
+}
+
+trap cleanup INT
 
 # Batch Encoder custom exit
 be_exit() {
-    remove_temporary_files
+    cleanup 1
     exit $1
 }
 
@@ -980,6 +967,9 @@ if [[ $watch == true ]]; then
     fi
 
     # Startup inotifywait in the background
+    # TODO: Phase out inotify in favor of polling on
+    # platforms like WSL. It only serves as additional
+    # overhead on those platforms with little or no gain.
     ( inotifywait -mr --format '%e %w%f' "${inotify_event_args[@]}" "$src_dir" 2> /dev/null |
         while read "${inotify_read_args[@]}" event || true; do
             if [[ $watch_rescan == true ]]; then
@@ -1100,6 +1090,6 @@ fi
 
 if [[ $watch == false ]]; then
     # Clean up temporary files
-    rm "$tmp_vid_enc_list"
+    cleanup 1
 fi
 
