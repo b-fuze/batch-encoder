@@ -966,6 +966,9 @@ start_encoding() {
         vid_enc_start_time=$( date +%s )
         echo -e "\e[90m[\e[36mstart\e[90m $( date +%X )]\e[0m"
 
+        # Create output file to avoid `wslpath` complaining it doesn't exist
+        touch "$vid_abs_out"
+
         # Finally, run FFmpeg
         vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$src_dir/$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
         run_ffmpeg "$details" "${vid_full_cmd[@]}"
