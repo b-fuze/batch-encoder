@@ -247,8 +247,8 @@ usage() {
 USAGE
     encoder.sh [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
                [--burn-subs] [--watermark FILE] [--clean] [--force]
-               [-w] [--watch-rescan] [--debug-run [DUR]] [--fatal]
-               [--verbose-streams]
+               [-w] [--watch-rescan] [--verbose-streams] [--fatal]
+               [--debug-run [DUR]]
     encoder.sh -h | --help
 
 DESCRIPTION
