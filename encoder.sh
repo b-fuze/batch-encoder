@@ -236,7 +236,7 @@ usage_section() {
     local usage=$2
     local cur_section=${defaults[help_section]}
 
-    if [[ $section == always || $section == $cur_section || $cur_section == all ]]; then
+    if [[ $section == $cur_section || $cur_section == all ]]; then
         echo -n "$usage"
     fi
 }
@@ -333,7 +333,7 @@ OPTIONS" | sed -Ee '1d'
         Print all streams and don't exclusively filter
         video, audio, and subtitle streams.
 "
-    usage_section always "
+    echo -n "
     -h, --help
         Show simplfied help.
 
