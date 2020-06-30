@@ -136,9 +136,11 @@ run_ffmpeg() {
     local vid_details="$1"
     local vid_frames="$( get_detail "VSTREAM_FRAMES" "$vid_details" )"
     local vid_dir_out="$( dirname "$( get_detail "VIDEO_OUT" "$vid_details" )" )"
+    local vid_file_out="$( basename "$( get_detail "VIDEO_OUT" "$vid_details" )" )"
 
     # Create temporary file to store FFmpeg errors
-    local tmp_vid_ffmpeg_errors=$( dirname "$tmp_vid_enc_list" )/.batch-enc-ffmpeg-err-$tmp_encoder_id
+    local tmp_vid_ffmpeg_errors_filename=$( tr -sc '[:alnum:]' '-' <<< "$vid_file_out" | sed -Ee 's/^-+//;s/-+$//'  )
+    local tmp_vid_ffmpeg_errors=$( dirname "$tmp_vid_enc_list" )/.batch-enc-ffmpeg-errors-${tmp_encoder_id:0:7}-$tmp_vid_ffmpeg_errors_filename
     encoder_tmp_files+=("$tmp_vid_ffmpeg_errors")
     echo -n "" > "$tmp_vid_ffmpeg_errors"
 
@@ -211,19 +213,18 @@ run_ffmpeg() {
             fi
         done
 
-    local ffmpeg_status=$?
+    local ffmpeg_status=${PIPESTATUS[0]}
 
     # Show cursor
     echo -en "\e[?25h"
 
     # Remove temporary FFmpeg error file or
     # print it to the user in case of error
-    if [[ $ffmpeg_status == 0 ]]; then
-        rm "$tmp_vid_ffmpeg_errors"
-        unset encoder_tmp_files[-1]
-    else
-        echo "FFmpeg error log: $tmp_vid_ffmpeg_errors"
-    fi
+    read -r -d '' ffmpeg_last_error_log < <( sed -Ee '/^\s*$/d' < "$tmp_vid_ffmpeg_errors" )
+    rm "$tmp_vid_ffmpeg_errors"
+
+    # Remove FFmpeg error log from list of temp files
+    unset encoder_tmp_files[-1]
 
     # Return FFmpeg's exit status
     return $ffmpeg_status
@@ -302,6 +303,9 @@ OPTIONS
         DURATION in seconds of videos. When 
         DURATION is omitted it defaults to 5
         seconds.
+    --fatal
+        Consider FFmpeg errors fatal and stop encoding
+        all videos.
 
     --verbose-streams
         Print all streams and don't exclusively filter
@@ -333,6 +337,7 @@ defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by d
 defaults[locale]=sub                   # Subbed or dubbed
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
+defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
 
 arg_mapping[-r]=--resolution
@@ -450,6 +455,9 @@ while true; do
                         consume_optional=true
                         consume_next_arg=debug_run_dur
                         ;;
+                    --fatal )
+                        defaults[fatal]=true
+                        ;;
                     --verbose-streams )
                         defaults[verbose_streams]=true
                         ;;
@@ -491,6 +499,7 @@ watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
+fatal="${defaults[fatal]}"
 verbose_streams="${defaults[verbose_streams]}"
 
 # Default output dir to src dir
@@ -584,7 +593,7 @@ echo "Found FFmpeg: $ffmpeg_executable"
 echo "Found FFprobe: $ffprobe_executable"
 
 if [[ $ffmpeg_executable =~ .exe ]]; then
-    if ! which wslpath 2>&1 > /dev/null; then
+    if ! which wslpath &> /dev/null; then
         echo "WSLpath command not installed in your PATH, aborting..."
         exit 1
     else
@@ -668,6 +677,8 @@ find_source_videos() {
 
 # Initially empty video details
 video_details=()
+video_count=0
+video_successful_count=0
 
 # Process all videos in the global $videos array and save the results to
 # $video_details
@@ -810,6 +821,9 @@ ffmpeg_output_args=(
     -movflags faststart # Web optimization
 )
 
+# FFmpeg errors from most recent encoding
+ffmpeg_last_error_log=""
+
 # Only encode 5 seconds for debugging
 if [[ $debug_run == true ]]; then
     ffmpeg_output_args+=(-t $debug_run_dur)
@@ -924,9 +938,20 @@ start_encoding() {
                 echo "Deleting original video '$src_dir/$video'..."
                 rm "$src_dir/$video"
             fi
+
+            (( video_successful_count++ ))
         else
-            echo -e "\n\e[91mFatal:\e[0m FFmpeg failed, aborting..."
-            be_exit 1
+            if [[ $fatal == true ]]; then
+                # Print error log in red and exit with non-zero error code
+                echo -e '\n\e[91m'"Fatal:\e[0m FFmpeg failed with the following errors:"
+                echo -e '\e[31m'"$ffmpeg_last_error_log"'\e[0m'
+                echo "Aborting..."
+                be_exit 1
+            else
+                # Print error log in grey and encode next video in queue
+                echo -e '\n\e[33m'"Warning:\e[0m FFmpeg failed with the following errors:"
+                echo -en '\e[37m'"$ffmpeg_last_error_log"'\e[0m'
+            fi
         fi
     done
 }
@@ -1085,7 +1110,7 @@ else
     process_videos
     start_encoding
 
-    echo -e "\n\e[92mEncoded $video_count videos successfully\e[0m"
+    echo -e "\n\e[92mEncoded $video_successful_count videos successfully\e[0m"
 fi
 
 if [[ $watch == false ]]; then
