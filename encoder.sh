@@ -11,10 +11,9 @@
 # `ffprobe.exe` are in your PATH
 
 # [1] TODO: Add watch feature to watch the source folder for new files
-# [2] TODO: Print FFmpeg errors _after_ the progress _while_ still updating process _in-place_
-# [3] TODO: Cache FFprobes output somewhere
-# [4] TODO: Validate stream options
-# [5] TODO: Batch video resolution (e.g 1080,720,360)
+# [2] TODO: Cache FFprobes output somewhere
+# [3] TODO: Validate stream options
+# [4] TODO: Batch video resolution (e.g 1080,720,360)
 
 shopt -s extglob
 shopt -u nocaseglob
