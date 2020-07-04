@@ -14,9 +14,11 @@
 Display this by running `encoder.sh --help`
 ```
 USAGE
-    encoder [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
-            [--burn-subs] [--watermark FILE] [--clean] [--force]
-    encoder -h | --help
+    encoder.sh [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
+               [--burn-subs] [--watermark FILE] [--clean] [--force]
+               [-w] [--watch-rescan] [--verbose-streams] [--fatal]
+               [--debug-run [DUR]]
+    encoder.sh -h | --help
 
 DESCRIPTION
     Encode all MKV and AVI videos in the current
@@ -26,55 +28,38 @@ DESCRIPTION
     absence of such arguments.
 
 OPTIONS
-    sub dub
-        Whether to encode subbed or dubbed.
-        Defaults to subbed.
-
-    -r --resolution RES
+    -r, --resolution RES
         RES can be one of 240, 360, 480, 640, 720,
         1080, or original. Original by default.
 
-    -a --auto --no-auto
+    -a, --auto, --no-auto
         Automatically determine appropriate audio
         and video streams. Implies --burn-subs
         in the absence of --no-burn-subs. Prompts
         by default.
 
-    --burn-subs --no-burn-subs
+    --burn-subs, --no-burn-subs
         Burn subtitles. Prompts by default.
 
-    --watermark FILE --no-watermark
-        Use a watermark .ass FILE. Defaults to
-        AU watermark if it exists.
-
-    -s --source DIR
+    -s, --source DIR
         Source directory for encodes. Defaults to
         current directory.
 
-    -d --destination DIR
+    -d, --destination DIR
         Destination directory for all encodes.
         Will create the directory it it doesn't
         already exist. Defaults to source
         directory.
 
-    -R --recursive
-        Whether to recursively search subdirs for
-        videos to encode. Won't by default.
+    -w, --watch
+        Watch source directory recursively for new
+        videos.
 
-    --clean
-        Remove original videos after encoding.
+    -h, --help
+        Show simplfied help.
 
-    --force
-        Overwrite existing videos. Won't by default.
-
-    --debug-run [DURATION]
-        Test encoder by only encoding (optional) 
-        DURATION in seconds of videos. When 
-        DURATION is omitted it defaults to 5
-        seconds.
-
-    -h --help
-        Show this help.
+    --help-advanced, --help-debug, --help-all
+        Show help from advanced sections.
 ```
 
 ## Known issues
