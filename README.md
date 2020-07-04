@@ -17,7 +17,7 @@ USAGE
     encoder.sh [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
                [--burn-subs] [--watermark FILE] [--clean] [--force]
                [-w] [--watch-rescan] [--verbose-streams] [--fatal]
-               [--debug-run [DUR]]
+               [--debug-run [DUR]] [--version]
     encoder.sh -h | --help
 
 DESCRIPTION
@@ -52,8 +52,11 @@ OPTIONS
         directory.
 
     -w, --watch
-        Watch source directory recursively for new
+        Watch source directory recursively for new 
         videos.
+
+    --version
+        Print version.
 
     -h, --help
         Show simplfied help.
