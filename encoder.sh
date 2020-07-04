@@ -315,6 +315,11 @@ OPTIONS" | sed -Ee '1d'
         Rescan the source directory on every file
         change event; don't trust inotify's
         information. Default on WSL.
+
+    --watch-validate
+        Validate files after detecting them while
+        watching. Won't by default as it's optimistic
+        and assumes the video is valid.
 "
     usage_section debug "
     --debug-run [DURATION]
@@ -356,6 +361,7 @@ defaults[recursive]=null               # Recursively encode subdirs
 defaults[force]=false                  # Overwrites existing encodes
 defaults[watch]=false                  # Watch source directory for new videos
 defaults[watch_rescan]=false           # Rescan the source dir for every inotify event
+defaults[watch_validate]=false         # Validate last 10 seconds of files after detecting them from watch mode
 defaults[clean]=false                  # Removes original video after encoding
 defaults[burn_subs]=null               # Burns subtitles into videos
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
@@ -470,6 +476,9 @@ while true; do
                     --watch-rescan )
                         defaults[watch_rescan]=true
                         ;;
+                    --watch-validate )
+                        defaults[watch_validate]=true
+                        ;;
                     --clean )
                         defaults[clean]=true
                         ;;
@@ -535,6 +544,7 @@ recursive="${defaults[recursive]}"
 force="${defaults[force]}"
 watch="${defaults[watch]}"
 watch_rescan="${defaults[watch_rescan]}"
+watch_validate="${defaults[watch_validate]}"
 clean="${defaults[clean]}"
 burn_subs="${defaults[burn_subs]}"
 watermark="${defaults[watermark]}"
@@ -652,8 +662,19 @@ tmp_encoder_id=$( date +%s%N | sha1sum ); tmp_encoder_id=${tmp_encoder_id:0:16}
 tmp_vid_enc_list=$( readlink -f "$out_dir" )/.batch-enc-list-$tmp_encoder_id
 tmp_vid_enc_watch_list=$( readlink -f "$out_dir" )/.batch-enc-watch-list-$tmp_encoder_id
 tmp_vid_enc_watch_sync=$( readlink -f "$out_dir" )/.batch-enc-watch-lock-$tmp_encoder_id
+tmp_vid_enc_watch_invalid_list=$( readlink -f "$out_dir" )/.batch-enc-watch-invalid-list-$tmp_encoder_id
 
-encoder_tmp_files=("$tmp_vid_enc_list" "$tmp_vid_enc_watch_list" "$tmp_vid_enc_watch_sync")
+encoder_tmp_files=(
+    "$tmp_vid_enc_list"
+    "$tmp_vid_enc_watch_list"
+    "$tmp_vid_enc_watch_sync"
+    "$tmp_vid_enc_watch_invalid_list"
+)
+
+# Create initially empty tmp files
+for file in "${encoder_tmp_files[@]}"; do
+    touch "$file"
+done
 
 # Remove temporary files on Ctrl-C (SIGINT)
 cleanup() {
@@ -1001,6 +1022,51 @@ start_encoding() {
     done
 }
 
+# Check if a video is "valid" by checking the last
+# 10 seconds of a video for errors, and update the blacklist
+# if it's invalid
+watchmode_check_valid() {
+    local video=$1
+    local video_base64=$2
+    local invalid=$( ( ffmpeg -v error -sseof -10 -i "$video" -f null - 1> /dev/null < /dev/null ) 2>&1 )
+    [[ -z $invalid ]] # Make sure $invalid contains no errors from FFmpeg
+    local is_valid=$?
+
+    # Remove the line with invalid video and append a new one with
+    # updated timestamp
+    if [[ $is_valid != 0 ]]; then
+        local invalid_linenr=$( grep -n -F "$video_base64" "$tmp_vid_enc_watch_invalid_list" )
+        local invalid_linenr=${invalid_linenr%%:*}
+        local invalid_list=$( sed -e "${invalid_linenr}d" < "$tmp_vid_enc_watch_invalid_list" )
+        ( echo "$invalid_list"; echo "$SECONDS $video_base64" ) > "$tmp_vid_enc_watch_invalid_list"
+    fi
+
+    return $is_valid
+}
+
+# (During watchmode) check if a video was blacklisted as invalid, and if
+# it was check if cooldown has passed. Succeeds if video wasn't blacklisted
+# or if cooldown has passed.
+watchmode_valid() {
+    local video=$1
+    local video_base64=$( base64 -w 0 <<< "$video" )
+    local blacklisted_line=$( grep -F "$video_base64" "$tmp_vid_enc_watch_invalid_list" )
+
+    if [[ -n $blacklisted_line ]]; then
+        local time=${blacklisted_line%% *}
+
+        if [[ $(( time + WATCH_INVALID_MAX_WAIT )) -lt $SECONDS ]]; then
+            watchmode_check_valid "$video" "$video_base64"
+            return
+        else
+            return 1
+        fi
+    else
+        watchmode_check_valid "$video" "$video_base64"
+        return
+    fi
+}
+
 # Start by either encoding then watching source directory for new videos or just
 # encoding once
 if [[ $watch == true ]]; then
@@ -1022,6 +1088,7 @@ if [[ $watch == true ]]; then
     last_iteration_encoding=false
 
     WATCH_MAX_WAIT=5 # in seconds
+    WATCH_INVALID_MAX_WAIT=5 # in seconds
     watch_last_wait_time=$SECONDS
     watch_last_read_count=1
     watch_event_last_wait_time=$SECONDS
@@ -1054,12 +1121,24 @@ if [[ $watch == true ]]; then
 
                         # Add the video if it wasn't listed before
                         if ! grep -qF -e "$cur_video_abs_path" "$tmp_vid_enc_list"; then
-                            echo "$cur_video_abs_path" >> "$tmp_vid_enc_list"
+                            if [[ $watch_validate == true ]]; then
+                                # Check that the video is valid
+                                if watchmode_valid "$cur_video_abs_path"; then
+                                    echo "$cur_video_abs_path" >> "$tmp_vid_enc_list"
 
-                            # Add video to watch list to be caught by main
-                            # batch encoder process
-                            echo "$video" >> "$tmp_vid_enc_watch_list"
-                            echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                                    # Add video to watch list to be caught by main
+                                    # batch encoder process
+                                    echo "$video" >> "$tmp_vid_enc_watch_list"
+                                    echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                                fi
+                            else
+                                echo "$cur_video_abs_path" >> "$tmp_vid_enc_list"
+
+                                # Add video to watch list to be caught by main
+                                # batch encoder process
+                                echo "$video" >> "$tmp_vid_enc_watch_list"
+                                echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                            fi
                         fi
                     done
 
@@ -1072,9 +1151,20 @@ if [[ $watch == true ]]; then
                 event_type=$( grep -Eo '^[^ ]+' <<< "$event" )
 
                 if [[ $event_target =~ .+\.(mkv|avi)$ ]]; then
-                    # We got a new file, add it to the list of videos
-                    echo "$event_target" >> "$tmp_vid_enc_watch_list"
-                    echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                    if [[ $watch_validate == true ]]; then
+                        cur_video_abs_path="$( readlink -f "$event_target" )"
+
+                        # Check that the video is valid
+                        if watchmode_valid "$cur_video_abs_path"; then
+                            # We got a new (valid) file, add it to the list of videos
+                            echo "$event_target" >> "$tmp_vid_enc_watch_list"
+                            echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                        fi
+                    else
+                        # We got a new file, add it to the list of videos
+                        echo "$event_target" >> "$tmp_vid_enc_watch_list"
+                        echo -n "#" >> "$tmp_vid_enc_watch_sync"
+                    fi
                 fi
             fi
         done ) &
