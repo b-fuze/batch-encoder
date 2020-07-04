@@ -1,5 +1,7 @@
 #!/bin/bash
 
+BATCH_ENCODER_VERSION=0.1.0
+
 # Author: Mike32
 #
 # Print usage: encoder.sh -h
@@ -246,7 +248,7 @@ USAGE
     encoder.sh [sub | dub] [-r RES] [-a] [-s SOURCE] [-d DEST] [-R]
                [--burn-subs] [--watermark FILE] [--clean] [--force]
                [-w] [--watch-rescan] [--verbose-streams] [--fatal]
-               [--debug-run [DUR]]
+               [--debug-run [DUR]] [--version]
     encoder.sh -h | --help
 
 DESCRIPTION
@@ -337,6 +339,9 @@ OPTIONS" | sed -Ee '1d'
         video, audio, and subtitle streams.
 "
     echo -n "
+    --version
+        Print version.
+
     -h, --help
         Show simplfied help.
 
@@ -511,7 +516,10 @@ while true; do
                         # Print help and quit
                         defaults[help_section]=basic
                         ;;
-
+                    --version )
+                        echo "v$BATCH_ENCODER_VERSION"
+                        exit
+                        ;;
                     # Sub/dub
                     dub )
                         defaults[locale]=dub
