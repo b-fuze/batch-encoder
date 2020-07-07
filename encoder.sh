@@ -26,6 +26,12 @@ b() {
     echo -en "\e[1m$1\e[0m"
 }
 
+# Output miscellaneous information
+misc_info() {
+    local msg=$1
+    echo -e '\e[90m'"$msg"'\e[0m'
+}
+
 # Confirmation prompt
 confirm() {
     echo -n "$1 (y/n) [$2]: "
@@ -86,7 +92,7 @@ human_duration() {
     local output=""
 
     # Hours
-    if [[ $seconds -gt $(( 60 * 60 )) ]]; then
+    if [[ $seconds -gt "60 * 60" ]]; then
         local hours=$(( seconds / 60 / 60 ))
         local output="${hours}h "
     fi
@@ -648,20 +654,20 @@ fi
 ffmpeg_executable=$( echo -n "$ffmpeg_executable" | tr -s / )
 ffprobe_executable=$( echo -n "$ffprobe_executable" | tr -s / )
 
-echo "Found FFmpeg: $ffmpeg_executable"
-echo "Found FFprobe: $ffprobe_executable"
+misc_info "Found FFmpeg: $ffmpeg_executable"
+misc_info "Found FFprobe: $ffprobe_executable"
 
 if [[ $ffmpeg_executable =~ .exe ]]; then
     if ! which wslpath &> /dev/null; then
         echo "WSLpath command not installed in your PATH, aborting..."
         exit 1
     else
-        echo "Found WSLPath: $( which wslpath )"
+        misc_info "Found WSLPath: $( which wslpath )"
     fi
 fi
 
 if [[ $watch == true ]]; then
-    echo "Watch mode enabled"
+    misc_info "Watch mode enabled"
 fi
 
 # Create temporary metadata files
@@ -718,7 +724,7 @@ find_source_videos() {
     shopt -s nocaseglob
 
     if [[ $recursive == true ]]; then
-        [[ -z $quiet ]] && echo -e "\nSearching recursively for video sources..."
+        [[ -z $quiet ]] && echo -en "\nSearching recursively for video sources... "
         curdir_files="$( cd "$src_dir"; ls -1 )"
 
         for file in $curdir_files; do
@@ -730,7 +736,7 @@ find_source_videos() {
             fi
         done
     else
-        [[ -z $quiet ]] && echo -e "\nSearching current directory for video sources..."
+        [[ -z $quiet ]] && echo -en "\nSearching current directory for video sources... "
         curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi} 2> /dev/null )"
 
         for video in $curdir_videos; do
@@ -758,7 +764,7 @@ process_videos() {
     video_details=()
     video_count=${#videos[@]}
     echo "Found $video_count videos""$is_watch_invocation"
-    echo -e "\n\e[95m\e[1mProcessing videos...\e[0m"
+    echo -e '\n\e[95m\e[1m'"➤ Processing videos..."'\e[0m'
 
     # Gather preliminary information about the videos
     cur_video_index=1
@@ -902,7 +908,7 @@ fi
 # Start encoding videos in the $video_details array containing information 
 # gathered from processing step
 start_encoding() {
-    echo -e "\n\e[95m\e[1mEncoding videos...\e[0m"
+    echo -e '\n\e[95m\e[1m'"➤ Encoding videos..."'\e[0m'
 
     cur_video_index=0
     for details in "${video_details[@]}"; do
@@ -1062,7 +1068,7 @@ watchmode_valid() {
     if [[ -n $blacklisted_line ]]; then
         local time=${blacklisted_line%% *}
 
-        if [[ $(( time + WATCH_INVALID_MAX_WAIT )) -lt $SECONDS ]]; then
+        if [[ "$time + $WATCH_INVALID_MAX_WAIT" -lt $SECONDS ]]; then
             watchmode_check_valid "$video" "$video_base64"
             return
         else
@@ -1183,8 +1189,14 @@ if [[ $watch == true ]]; then
         # Note that watching is still active, we just encode existing
         # videos first
         if [[ $processed_initial_videos == false ]]; then
-            process_videos
-            start_encoding
+            current_video_count=${#videos[@]}
+            if [[ $current_video_count -gt 0 ]]; then
+                process_videos
+                start_encoding
+            else
+                echo "" # For empty line between searching and watching message
+            fi
+
             processed_initial_videos=true
             last_iteration_encoding=true
 
@@ -1240,7 +1252,7 @@ if [[ $watch == true ]]; then
         fi
 
         if [[ $last_iteration_encoding == true ]]; then
-            echo -e '\n'"$( b "Watching for new videos..." )\n"
+            echo -e '\n\e[92m'"$( b "Watching for new videos..." )\n"
         fi
 
         last_iteration_encoding=false
