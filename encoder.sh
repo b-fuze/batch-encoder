@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BATCH_ENCODER_VERSION=0.1.2
+BATCH_ENCODER_VERSION=0.1.4
 
 # Author: Mike32
 #
@@ -15,6 +15,7 @@ BATCH_ENCODER_VERSION=0.1.2
 # [1] TODO: Cache FFprobes output somewhere
 # [2] TODO: Validate stream options
 # [3] TODO: Batch video resolution (e.g 1080,720,360)
+# [4] TODO: Show titles of Streams
 
 shopt -s extglob
 shopt -u nocaseglob
@@ -284,6 +285,10 @@ OPTIONS" | sed -Ee '1d'
 
     --burn-subs, --no-burn-subs
         Burn subtitles. Prompts by default.
+
+    --recolor-subs
+        Recolor PGS/VOB subtitles to neutral
+        colors.
 "
     usage_section advanced "
     --watermark FILE, --no-watermark
@@ -334,6 +339,10 @@ OPTIONS" | sed -Ee '1d'
         DURATION in seconds of videos. When 
         DURATION is omitted it defaults to 5
         seconds.
+
+    --debug-ffmpeg-errors
+        Display FFmpeg error log even after successful
+        encodes.
 "
     usage_section advanced "
     --fatal
@@ -374,10 +383,12 @@ defaults[watch_rescan]=false           # Rescan the source dir for every inotify
 defaults[watch_validate]=false         # Validate last 10 seconds of files after detecting them from watch mode
 defaults[clean]=false                  # Removes original video after encoding
 defaults[burn_subs]=null               # Burns subtitles into videos
+defaults[recolor_subs]=false           # Recolor subtitles to a neutral color
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
 defaults[locale]=sub                   # Subbed or dubbed
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
+defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
 defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
 defaults[help_section]=""              # Help section to choose from: basic, advanced, debug, all
@@ -456,6 +467,9 @@ while true; do
                     --no-burn-subs )
                         defaults[burn_subs]=false
                         ;;
+                    --recolor-subs )
+                        defaults[recolor_subs]=true
+                        ;;
                     --watermark )
                         # Watermark .ass file supplied as next arg
                         consume_next=true
@@ -499,6 +513,9 @@ while true; do
                         consume_next=true
                         consume_optional=true
                         consume_next_arg=debug_run_dur
+                        ;;
+                    --debug-ffmpeg-errors )
+                        defaults[debug_ffmpeg_errors]=true
                         ;;
                     --fatal )
                         defaults[fatal]=true
@@ -560,10 +577,12 @@ watch_rescan="${defaults[watch_rescan]}"
 watch_validate="${defaults[watch_validate]}"
 clean="${defaults[clean]}"
 burn_subs="${defaults[burn_subs]}"
+recolor_subs="${defaults[recolor_subs]}"
 watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
+debug_ffmpeg_errors="${defaults[debug_ffmpeg_errors]}"
 fatal="${defaults[fatal]}"
 verbose_streams="${defaults[verbose_streams]}"
 
@@ -849,7 +868,9 @@ process_videos() {
             cur_vid_has_subtitles=false
         fi
 
-        if [[ $vid_burn_subs == null || $vid_burn_subs == true ]]; then
+        # If we're not automatically detecting streams prompt for the subtitle
+        # stream
+        if [[ $cur_vid_auto != true && ( $vid_burn_subs == null || $vid_burn_subs == true ) ]]; then
             if [[ $cur_vid_has_subtitles == true ]]; then
                 # If it's not automatically detecting streams and we're going
                 # to burn subtitles, or we confirm the user wants to burn subtitles
@@ -858,19 +879,7 @@ process_videos() {
                     vid_burn_subs=true
                     echo -n "Select Subtitle [default]: "
                     read subtitle_stream
-
-                    local IFS=$'\n'
-                    local subtitle_stream_index=0
-                    for sstream_line in $( grep 'Subtitle' <<< "$streams" ); do
-                        # Check if the subtitle stream ID matched this stream
-                        if grep -qE 'Stream #0:'"$subtitle_stream[^0-9]" <<< "$sstream_line"; then
-                            subtitle_stream=$subtitle_stream_index
-                            subtitle_stream_type=$( sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' <<< "$sstream_line" )
-                            break
-                        fi
-
-                        (( subtitle_stream_index++ ))
-                    done
+                    subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
                 fi
             else
                 echo "No subtitles detected"
@@ -884,15 +893,27 @@ process_videos() {
         # Otherwise if the user didn't select a subtitle stream determine
         # the subtitle type and set the first subtitle stream as default
         elif [[ -z $subtitle_stream_type ]]; then
-            subtitle_stream=0
+            # TODO: DRY
+            subtitle_stream=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
             subtitle_stream_type=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+
+            # If the default subtitle wasn't detected then just use the first
+            # subtitle
+            if [[ -z $subtitle_stream_type ]]; then
+                subtitle_stream=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
+                subtitle_stream_type=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+            fi
         fi
+
+        # Get the video stream height
+        video_stream_height=$( grep -E -m 1 'Stream.+Video:' <<< "$streams" | sed -E 's/^.+[0-9]+[xX]([0-9]+).+$/\1/' )
 
         IFS=':'
         # Save video details' struct
         cur_vid_details=$(cat <<VID
 VIDEO:$video
 VIDEO_OUT:$vid_out
+VIDEO_HEIGHT:$video_stream_height
 AUTO:$cur_vid_auto
 VSTREAM:$video_stream
 ASTREAM:$audio_stream
@@ -950,6 +971,7 @@ start_encoding() {
         (( cur_video_index++ ))
         video="$( get_detail "VIDEO" "$details" )"
         video_out="$( get_detail "VIDEO_OUT" "$details" )"
+        video_height="$( get_detail "VIDEO_HEIGHT" "$details" )"
         vid_auto="$( get_detail "AUTO" "$details" )"
         video_stream="$( get_detail "VSTREAM" "$details" )"
         audio_stream="$( get_detail "ASTREAM" "$details" )"
@@ -968,7 +990,7 @@ start_encoding() {
             vid_filter_args=()
         fi
 
-        # Empty second filter graph (for VOBSub)
+        # Empty second filter graph (for VOBSub/PGS)
         vid_filter_second_filtergraph_args=
 
         # Make local copy of ffmpeg output args
@@ -992,7 +1014,7 @@ start_encoding() {
 
         # Burn subs
         if [[ $vid_burn_subs == true ]]; then
-            if [[ $subtitle_stream_type == ass ]]; then
+            if [[ $subtitle_stream_type == ass || $subtitle_stream_type == subrip ]]; then
                 # Burn ASS subtitles
                 #
                 # Because FFmpeg's video filters' parser has crazy rules for escaping...
@@ -1009,9 +1031,16 @@ start_encoding() {
 
                 vid_filter_args+=("$vid_subtitle_filter_arg")
                 vid_output_args+=(-map 0:v:0) # First/default video stream
-            elif [[ $subtitle_stream_type == dvd_subtitle ]]; then
-                # Burn VOBsub/dvd_subtitle subtitles
-                vid_filter_second_filtergraph_args="[0:v][0:s:$subtitle_stream]overlay"
+            elif [[ $subtitle_stream_type == dvd_subtitle || $subtitle_stream_type == hdmv_pgs_subtitle ]]; then
+                # Burn VOBsub/PGS subtitles
+                local vid_sub_recolor=
+
+                if [[ $recolor_subs == true ]]; then
+                    # local vid_sub_recolor=",eq=saturation=0"
+                    local vid_sub_recolor=",hue=s=0,curves=preset=lighter,curves=preset=lighter"
+                fi
+
+                vid_filter_second_filtergraph_args="[0:$subtitle_stream]scale=-2:$video_height$vid_sub_recolor[subs]; [0:v][subs]overlay"
                 vid_output_args+=(-map "[v]")
             else
                 echo "Error: Subtitle type '$subtitle_stream_type' not supported"
@@ -1084,6 +1113,13 @@ start_encoding() {
             if [[ $clean == true ]]; then
                 echo "Deleting original video '$src_dir/$video'..."
                 rm "$src_dir/$video"
+            fi
+
+            # Print FFmpeg errors even though it didn't fail
+            if [[ $debug_ffmpeg_errors == true ]]; then
+                # Print error log in grey and encode next video in queue
+                echo -e '\n\e[33m'"Info:\e[0m FFmpeg error log:"
+                echo -en '\e[37m'"$ffmpeg_last_error_log"'\e[0m'
             fi
 
             (( video_successful_count++ ))
