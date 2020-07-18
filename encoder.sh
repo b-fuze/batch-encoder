@@ -858,7 +858,9 @@ process_videos() {
             cur_vid_has_subtitles=false
         fi
 
-        if [[ $vid_burn_subs == null || $vid_burn_subs == true ]]; then
+        # If we're not automatically detecting streams prompt for the subtitle
+        # stream
+        if [[ $cur_vid_auto != true && ( $vid_burn_subs == null || $vid_burn_subs == true ) ]]; then
             if [[ $cur_vid_has_subtitles == true ]]; then
                 # If it's not automatically detecting streams and we're going
                 # to burn subtitles, or we confirm the user wants to burn subtitles
@@ -867,19 +869,7 @@ process_videos() {
                     vid_burn_subs=true
                     echo -n "Select Subtitle [default]: "
                     read subtitle_stream
-
-                    local IFS=$'\n'
-                    local subtitle_stream_index=0
-                    for sstream_line in $( grep 'Subtitle' <<< "$streams" ); do
-                        # Check if the subtitle stream ID matched this stream
-                        if grep -qE 'Stream #0:'"$subtitle_stream[^0-9]" <<< "$sstream_line"; then
-                            subtitle_stream=$subtitle_stream_index
-                            subtitle_stream_type=$( sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' <<< "$sstream_line" )
-                            break
-                        fi
-
-                        (( subtitle_stream_index++ ))
-                    done
+                    subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
                 fi
             else
                 echo "No subtitles detected"
@@ -893,8 +883,16 @@ process_videos() {
         # Otherwise if the user didn't select a subtitle stream determine
         # the subtitle type and set the first subtitle stream as default
         elif [[ -z $subtitle_stream_type ]]; then
-            subtitle_stream=0
+            # TODO: DRY
+            subtitle_stream=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
             subtitle_stream_type=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+
+            # If the default subtitle wasn't detected then just use the first
+            # subtitle
+            if [[ -z $subtitle_stream_type ]]; then
+                subtitle_stream=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
+                subtitle_stream_type=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+            fi
         fi
 
         IFS=':'
@@ -977,7 +975,7 @@ start_encoding() {
             vid_filter_args=()
         fi
 
-        # Empty second filter graph (for VOBSub)
+        # Empty second filter graph (for VOBSub/PGS)
         vid_filter_second_filtergraph_args=
 
         # Make local copy of ffmpeg output args
@@ -1001,7 +999,7 @@ start_encoding() {
 
         # Burn subs
         if [[ $vid_burn_subs == true ]]; then
-            if [[ $subtitle_stream_type == ass ]]; then
+            if [[ $subtitle_stream_type == ass || $subtitle_stream_type == subrip ]]; then
                 # Burn ASS subtitles
                 #
                 # Because FFmpeg's video filters' parser has crazy rules for escaping...
@@ -1018,9 +1016,9 @@ start_encoding() {
 
                 vid_filter_args+=("$vid_subtitle_filter_arg")
                 vid_output_args+=(-map 0:v:0) # First/default video stream
-            elif [[ $subtitle_stream_type == dvd_subtitle ]]; then
-                # Burn VOBsub/dvd_subtitle subtitles
-                vid_filter_second_filtergraph_args="[0:v][0:s:$subtitle_stream]overlay"
+            elif [[ $subtitle_stream_type == dvd_subtitle || $subtitle_stream_type == hdmv_pgs_subtitle ]]; then
+                # Burn VOBsub/PGS subtitles
+                vid_filter_second_filtergraph_args="[0:v][0:$subtitle_stream]overlay"
                 vid_output_args+=(-map "[v]")
             else
                 echo "Error: Subtitle type '$subtitle_stream_type' not supported"
