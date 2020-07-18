@@ -1008,7 +1008,6 @@ start_encoding() {
                 vid_output_args+=(-map 0:v:0) # First/default video stream
             elif [[ $subtitle_stream_type == dvd_subtitle ]]; then
                 # Burn VOBsub/dvd_subtitle subtitles
-                # vid_output_args+=(-filter_complex "[0:v][0:s:$subtitle_stream]overlay[v]" -map "[v]")
                 vid_filter_second_filtergraph_args="[0:v][0:s:$subtitle_stream]overlay"
                 vid_output_args+=(-map "[v]")
             else
