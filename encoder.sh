@@ -783,6 +783,8 @@ process_videos() {
         cur_vid_details=
         video_stream=
         audio_stream=
+        subtitle_stream=
+        subtitle_stream_type=
         vid_burn_subs=$burn_subs
 
         if [[ $cur_vid_auto == null ]]; then
@@ -826,7 +828,10 @@ process_videos() {
             fi
 
             # Print streams human-readable
-            echo "$streams" | grep 'Stream #0' | sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
+            echo "$streams" | grep 'Stream #0' | 
+                sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' \
+                    -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' \
+                    -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
 
             echo -n "Select Video: "
             read video_stream
@@ -844,9 +849,29 @@ process_videos() {
             cur_vid_has_subtitles=false
         fi
 
-        if [[ $vid_burn_subs == null ]]; then
+        if [[ $vid_burn_subs == null || $vid_burn_subs == true ]]; then
             if [[ $cur_vid_has_subtitles == true ]]; then
-                confirm "Burn subtitles?" "n" && vid_burn_subs=true
+                # If it's not automatically detecting streams and we're going
+                # to burn subtitles, or we confirm the user wants to burn subtitles
+                # then we prompt for the subtitle stream
+                if [[ $auto != true ]] && ( [[ $vid_burn_subs == true ]] || confirm "Burn subtitles?" "n" ); then
+                    vid_burn_subs=true
+                    echo -n "Select Subtitle [default]: "
+                    read subtitle_stream
+
+                    local IFS=$'\n'
+                    local subtitle_stream_index=0
+                    for sstream_line in $( grep 'Subtitle' <<< "$streams" ); do
+                        # Check if the subtitle stream ID matched this stream
+                        if grep -qE 'Stream #0:'"$subtitle_stream[^0-9]" <<< "$sstream_line"; then
+                            subtitle_stream=$subtitle_stream_index
+                            subtitle_stream_type=$( sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' <<< "$sstream_line" )
+                            break
+                        fi
+
+                        (( subtitle_stream_index++ ))
+                    done
+                fi
             else
                 echo "No subtitles detected"
             fi
@@ -856,6 +881,11 @@ process_videos() {
         # video since it doesn't have any subtitles
         if [[ $cur_vid_has_subtitles == false ]]; then
             vid_burn_subs=false
+        # Otherwise if the user didn't select a subtitle stream determine
+        # the subtitle type and set the first subtitle stream as default
+        elif [[ -z $subtitle_stream_type ]]; then
+            subtitle_stream=0
+            subtitle_stream_type=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
         fi
 
         IFS=':'
@@ -866,6 +896,8 @@ VIDEO_OUT:$vid_out
 AUTO:$cur_vid_auto
 VSTREAM:$video_stream
 ASTREAM:$audio_stream
+SSTREAM:$subtitle_stream
+SSTREAM_TYPE:$subtitle_stream_type
 VSTREAM_FRAMES:${cur_vid_vid_streams[*]}
 BURNSUBS:$vid_burn_subs
 VID
@@ -918,6 +950,8 @@ start_encoding() {
         vid_auto="$( get_detail "AUTO" "$details" )"
         video_stream="$( get_detail "VSTREAM" "$details" )"
         audio_stream="$( get_detail "ASTREAM" "$details" )"
+        subtitle_stream="$( get_detail "SSTREAM" "$details" )"
+        subtitle_stream_type="$( get_detail "SSTREAM_TYPE" "$details" )"
         vid_burn_subs="$( get_detail "BURNSUBS" "$details" )"
         vid_res=$res
 
@@ -926,10 +960,13 @@ start_encoding() {
 
         # Initialize video filters with watermark (if it exists)
         if [[ $use_watermark == true ]]; then
-            vid_filter_args=("ass=\\'$( path "$watermark" )\\'")
+            vid_filter_args=("subtitles=\\'$( path "$watermark" )\\'")
         else
             vid_filter_args=()
         fi
+
+        # Empty second filter graph (for VOBSub)
+        vid_filter_second_filtergraph_args=
 
         # Make local copy of ffmpeg output args
         vid_output_args=("${ffmpeg_output_args[@]}")
@@ -950,18 +987,41 @@ start_encoding() {
             continue
         fi
 
-        # Choose different streams instead of the defaults
-        if [[ -n $video_stream ]] && [[ -n $audio_stream ]]; then
-            vid_output_args+=(-map 0:$video_stream -map 0:$audio_stream)
-        fi
-
         # Burn subs
         if [[ $vid_burn_subs == true ]]; then
-            # Because FFmpeg's video filters' parser has crazy rules for escaping...
-            # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
-            #
-            # Monstrosity of escaping inbound...
-            vid_filter_args+=("subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )")
+            if [[ $subtitle_stream_type == ass ]]; then
+                # Burn ASS subtitles
+                #
+                # Because FFmpeg's video filters' parser has crazy rules for escaping...
+                # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
+                #
+                # Monstrosity of escaping inbound...
+                local vid_subtitle_filter_arg="subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )"
+
+                # If a specific subtitle stream was selected by the user then
+                # forward that to FFmpeg
+                if [[ $subtitle_stream =~ ^[0-9]+$ ]]; then
+                    local vid_subtitle_filter_arg+=":si=$subtitle_stream"
+                fi
+
+                vid_filter_args+=("$vid_subtitle_filter_arg")
+                vid_output_args+=(-map 0:v:0) # First/default video stream
+            elif [[ $subtitle_stream_type == dvd_subtitle ]]; then
+                # Burn VOBsub/dvd_subtitle subtitles
+                # vid_output_args+=(-filter_complex "[0:v][0:s:$subtitle_stream]overlay[v]" -map "[v]")
+                vid_filter_second_filtergraph_args="[0:v][0:s:$subtitle_stream]overlay"
+                vid_output_args+=(-map "[v]")
+            else
+                echo "Error: Subtitle type '$subtitle_stream_type' not supported"
+            fi
+        fi
+
+        # Choose different audio stream
+        if [[ -n $audio_stream ]]; then
+            vid_output_args+=(-map 0:$audio_stream)
+        else
+            # Use first audio stream as default
+            vid_output_args+=(-map 0:a:0)
         fi
 
         # Create output dir if it doesn't exist already
@@ -990,7 +1050,13 @@ start_encoding() {
 
         # Append video filter args to output args
         IFS=","
-        vid_output_args+=(-vf "${vid_filter_args[*]}")
+        local filter_complex_args="${vid_filter_args[*]}"
+        if [[ -n $vid_filter_second_filtergraph_args ]]; then
+            # Put VOBSub filter at the beginning
+            local filter_complex_args="$vid_filter_second_filtergraph_args,$filter_complex_args[v]"
+        fi
+
+        vid_output_args+=(-filter_complex "$filter_complex_args")
 
         # Print progress to stdout
         vid_output_args+=(-progress pipe:1)
