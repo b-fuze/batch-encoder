@@ -334,6 +334,10 @@ OPTIONS" | sed -Ee '1d'
         DURATION in seconds of videos. When 
         DURATION is omitted it defaults to 5
         seconds.
+
+    --debug-ffmpeg-errors
+        Display FFmpeg error log even after successful
+        encodes.
 "
     usage_section advanced "
     --fatal
@@ -378,6 +382,7 @@ defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by d
 defaults[locale]=sub                   # Subbed or dubbed
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
+defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
 defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
 defaults[help_section]=""              # Help section to choose from: basic, advanced, debug, all
@@ -500,6 +505,9 @@ while true; do
                         consume_optional=true
                         consume_next_arg=debug_run_dur
                         ;;
+                    --debug-ffmpeg-errors )
+                        defaults[debug_ffmpeg_errors]=true
+                        ;;
                     --fatal )
                         defaults[fatal]=true
                         ;;
@@ -564,6 +572,7 @@ watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
+debug_ffmpeg_errors="${defaults[debug_ffmpeg_errors]}"
 fatal="${defaults[fatal]}"
 verbose_streams="${defaults[verbose_streams]}"
 
@@ -1084,6 +1093,13 @@ start_encoding() {
             if [[ $clean == true ]]; then
                 echo "Deleting original video '$src_dir/$video'..."
                 rm "$src_dir/$video"
+            fi
+
+            # Print FFmpeg errors even though it didn't fail
+            if [[ $debug_ffmpeg_errors == true ]]; then
+                # Print error log in grey and encode next video in queue
+                echo -e '\n\e[33m'"Info:\e[0m FFmpeg error log:"
+                echo -en '\e[37m'"$ffmpeg_last_error_log"'\e[0m'
             fi
 
             (( video_successful_count++ ))
