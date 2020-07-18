@@ -896,11 +896,15 @@ process_videos() {
             fi
         fi
 
+        # Get the video stream height
+        video_stream_height=$( grep -E -m 1 'Stream.+Video:' <<< "$streams" | sed -E 's/^.+[0-9]+[xX]([0-9]+).+$/\1/' )
+
         IFS=':'
         # Save video details' struct
         cur_vid_details=$(cat <<VID
 VIDEO:$video
 VIDEO_OUT:$vid_out
+VIDEO_HEIGHT:$video_stream_height
 AUTO:$cur_vid_auto
 VSTREAM:$video_stream
 ASTREAM:$audio_stream
@@ -958,6 +962,7 @@ start_encoding() {
         (( cur_video_index++ ))
         video="$( get_detail "VIDEO" "$details" )"
         video_out="$( get_detail "VIDEO_OUT" "$details" )"
+        video_height="$( get_detail "VIDEO_HEIGHT" "$details" )"
         vid_auto="$( get_detail "AUTO" "$details" )"
         video_stream="$( get_detail "VSTREAM" "$details" )"
         audio_stream="$( get_detail "ASTREAM" "$details" )"
@@ -1019,7 +1024,7 @@ start_encoding() {
                 vid_output_args+=(-map 0:v:0) # First/default video stream
             elif [[ $subtitle_stream_type == dvd_subtitle || $subtitle_stream_type == hdmv_pgs_subtitle ]]; then
                 # Burn VOBsub/PGS subtitles
-                vid_filter_second_filtergraph_args="[0:v][0:$subtitle_stream]overlay"
+                vid_filter_second_filtergraph_args="[0:$subtitle_stream]scale=-2:$video_height[subs]; [0:v][subs]overlay"
                 vid_output_args+=(-map "[v]")
             else
                 echo "Error: Subtitle type '$subtitle_stream_type' not supported"
