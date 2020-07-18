@@ -12,9 +12,12 @@ BATCH_ENCODER_VERSION=0.1.3
 # It also works on Windows via WSL as long as both `ffmpeg.exe` and 
 # `ffprobe.exe` are in your PATH
 
-# [1] TODO: Cache FFprobes output somewhere
-# [2] TODO: Validate stream options
-# [3] TODO: Batch video resolution (e.g 1080,720,360)
+# [1] TODO: Add watch feature to watch the source folder for new files
+# [2] TODO: Print FFmpeg errors _after_ the progress _while_ still updating process _in-place_
+# [3] TODO: Cache FFprobes output somewhere
+# [4] TODO: Validate stream options
+# [5] TODO: Batch video resolution (e.g 1080,720,360)
+# [6] TODO: Show titles of Streams
 
 shopt -s extglob
 shopt -u nocaseglob
