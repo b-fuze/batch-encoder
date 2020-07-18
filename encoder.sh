@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BATCH_ENCODER_VERSION=0.1.0
+BATCH_ENCODER_VERSION=0.1.2
 
 # Author: Mike32
 #
