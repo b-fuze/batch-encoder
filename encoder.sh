@@ -917,14 +917,17 @@ ffmpeg_input_args=(
 
 ffmpeg_output_args=(
     -y                # Overwrite existing files without prompting, we check instead
-    -c:v libx264
-    -preset faster
-    -tune animation
-    -crf 23
-    -profile:v high
-    -level 4.1
-    -pix_fmt yuv420p
-    -c:a aac
+    -c:v libx264 
+    -preset faster 
+    -tune animation 
+    -trellis 2 
+    -subq 10 
+    -me_method umh 
+    -crf 26.5 
+    -profile:v high 
+    -level 4.1 
+    -pix_fmt yuv420p 
+    -c:a aac 
     -b:a 192k
     -movflags faststart # Web optimization
 )
