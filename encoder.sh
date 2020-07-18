@@ -285,6 +285,10 @@ OPTIONS" | sed -Ee '1d'
 
     --burn-subs, --no-burn-subs
         Burn subtitles. Prompts by default.
+
+    --recolor-subs
+        Recolor PGS/VOB subtitles to neutral
+        colors.
 "
     usage_section advanced "
     --watermark FILE, --no-watermark
@@ -379,6 +383,7 @@ defaults[watch_rescan]=false           # Rescan the source dir for every inotify
 defaults[watch_validate]=false         # Validate last 10 seconds of files after detecting them from watch mode
 defaults[clean]=false                  # Removes original video after encoding
 defaults[burn_subs]=null               # Burns subtitles into videos
+defaults[recolor_subs]=false           # Recolor subtitles to a neutral color
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
 defaults[locale]=sub                   # Subbed or dubbed
 defaults[debug_run]=false              # Only encode short durations of the video for testing
@@ -461,6 +466,9 @@ while true; do
                         ;;
                     --no-burn-subs )
                         defaults[burn_subs]=false
+                        ;;
+                    --recolor-subs )
+                        defaults[recolor_subs]=true
                         ;;
                     --watermark )
                         # Watermark .ass file supplied as next arg
@@ -569,6 +577,7 @@ watch_rescan="${defaults[watch_rescan]}"
 watch_validate="${defaults[watch_validate]}"
 clean="${defaults[clean]}"
 burn_subs="${defaults[burn_subs]}"
+recolor_subs="${defaults[recolor_subs]}"
 watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
 debug_run="${defaults[debug_run]}"
@@ -1024,7 +1033,14 @@ start_encoding() {
                 vid_output_args+=(-map 0:v:0) # First/default video stream
             elif [[ $subtitle_stream_type == dvd_subtitle || $subtitle_stream_type == hdmv_pgs_subtitle ]]; then
                 # Burn VOBsub/PGS subtitles
-                vid_filter_second_filtergraph_args="[0:$subtitle_stream]scale=-2:$video_height[subs]; [0:v][subs]overlay"
+                local vid_sub_recolor=
+
+                if [[ $recolor_subs == true ]]; then
+                    # local vid_sub_recolor=",eq=saturation=0"
+                    local vid_sub_recolor=",hue=s=0,curves=preset=lighter,curves=preset=lighter"
+                fi
+
+                vid_filter_second_filtergraph_args="[0:$subtitle_stream]scale=-2:$video_height$vid_sub_recolor[subs]; [0:v][subs]overlay"
                 vid_output_args+=(-map "[v]")
             else
                 echo "Error: Subtitle type '$subtitle_stream_type' not supported"
