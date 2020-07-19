@@ -908,6 +908,20 @@ process_videos() {
         # Get the video stream height
         video_stream_height=$( grep -E -m 1 'Stream.+Video:' <<< "$streams" | sed -E 's/^.+[0-9]+[xX]([0-9]+).+$/\1/' )
 
+        # Find the relative stream number
+        subtitle_stream_index=0
+
+        if [[ $cur_vid_has_subtitles == true ]]; then
+            IFS=$'\n'
+            for sstream in $streams; do
+                if grep -qF 'Stream #0:'"$subtitle_stream" <<< "$streams"; then
+                    break
+                fi
+
+                (( subtitle_stream_index++ ))
+            done
+        fi
+
         IFS=':'
         # Save video details' struct
         cur_vid_details=$(cat <<VID
@@ -918,6 +932,7 @@ AUTO:$cur_vid_auto
 VSTREAM:$video_stream
 ASTREAM:$audio_stream
 SSTREAM:$subtitle_stream
+SSTREAM_INDEX:$subtitle_stream_index
 SSTREAM_TYPE:$subtitle_stream_type
 VSTREAM_FRAMES:${cur_vid_vid_streams[*]}
 BURNSUBS:$vid_burn_subs
@@ -976,6 +991,7 @@ start_encoding() {
         video_stream="$( get_detail "VSTREAM" "$details" )"
         audio_stream="$( get_detail "ASTREAM" "$details" )"
         subtitle_stream="$( get_detail "SSTREAM" "$details" )"
+        subtitle_stream_index="$( get_detail "SSTREAM_INDEX" "$details" )"
         subtitle_stream_type="$( get_detail "SSTREAM_TYPE" "$details" )"
         vid_burn_subs="$( get_detail "BURNSUBS" "$details" )"
         vid_res=$res
@@ -1026,7 +1042,7 @@ start_encoding() {
                 # If a specific subtitle stream was selected by the user then
                 # forward that to FFmpeg
                 if [[ $subtitle_stream =~ ^[0-9]+$ ]]; then
-                    local vid_subtitle_filter_arg+=":si=$subtitle_stream"
+                    local vid_subtitle_filter_arg+=":si=$subtitle_stream_index"
                 fi
 
                 vid_filter_args+=("$vid_subtitle_filter_arg")
