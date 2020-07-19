@@ -128,6 +128,12 @@ get_stream_framecount() {
 
     # Get fps to get total frames
     local fps=$( grep -oP '\d+(.\d+)? fps' <<< "$cur_stream_details" | awk '{ print $1 }' )
+
+    # Check if the user specified an alternate framerate
+    if [[ $framerate != original ]]; then
+        local fps=$framerate
+    fi
+
     local total_frames=$( bc <<< "scale=8; $fps * $duration_secs" )
     local total_frames=$( printf "%.f" "$total_frames" )
 
@@ -332,6 +338,10 @@ OPTIONS" | sed -Ee '1d'
         Validate files after detecting them while
         watching. Won't by default as it's optimistic
         and assumes the video is valid.
+
+    --framerate NUM
+        Set framerate for the video. Defaults to
+        the original framerate.
 "
     usage_section debug "
     --debug-run [DURATION]
@@ -386,6 +396,7 @@ defaults[burn_subs]=null               # Burns subtitles into videos
 defaults[recolor_subs]=false           # Recolor subtitles to a neutral color
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
 defaults[locale]=sub                   # Subbed or dubbed
+defaults[framerate]=original           # Framerate
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
 defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
@@ -506,6 +517,10 @@ while true; do
                     --clean )
                         defaults[clean]=true
                         ;;
+                    --framerate )
+                        consume_next=true
+                        consume_next_arg=framerate
+                        ;;
                     --debug-run )
                         defaults[debug_run]=true
 
@@ -580,6 +595,7 @@ burn_subs="${defaults[burn_subs]}"
 recolor_subs="${defaults[recolor_subs]}"
 watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
+framerate="${defaults[framerate]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
 debug_ffmpeg_errors="${defaults[debug_ffmpeg_errors]}"
@@ -604,6 +620,13 @@ case $res in
         echo -e "\nInvalid resolution '$res'"
         exit 1
 esac
+
+# Validate framerate
+if ! [[ $framerate = original || ( $framerate =~ ^[0-9]+$ && $framerate -gt 11 ) ]]; then
+    usage
+    echo -e '\n'"Invalid or missing framerate '$framerate'. Must be an integer greater than 12."
+    exit 1
+fi
 
 # Check for (optional) Watermark file
 use_watermark=true
@@ -1069,6 +1092,11 @@ start_encoding() {
         else
             # Use first audio stream as default
             vid_output_args+=(-map 0:a:0)
+        fi
+
+        # Set framerate
+        if ! [[ $framerate = original ]]; then
+            vid_output_args+=(-r $framerate)
         fi
 
         # Create output dir if it doesn't exist already
