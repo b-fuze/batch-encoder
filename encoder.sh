@@ -87,6 +87,18 @@ nix_path() {
     fi
 }
 
+# Check for Windows paths (and convert them to *nix paths)
+check_windows_path() {
+    local path="$1"
+
+    # Match against absolute paths on Windows
+    if [[ $path =~ ^[A-Z]:\\ || $path =~ ^\\wsl$\\ ]]; then
+        nix_path "$path"
+    else
+        echo -n "$path"
+    fi
+}
+
 # Human readable duration
 human_duration() {
     local seconds="$1"
@@ -631,10 +643,18 @@ fi
 # Check for (optional) Watermark file
 use_watermark=true
 
-if [[ ! -f "$watermark" ]]; then
-    if [[ -n "$watermark" ]]; then
-        echo "Notice: Watermark '$watermark' doesn't exist"
+# See if watermark (or default watermark) was provided and then
+# convert it to a *nix path if it isn't already
+if [[ -n "$watermark" ]]; then
+    original_watermark_path=$watermark
+    watermark=$( check_windows_path "$watermark" )
+
+    if [[ ! -f "$watermark" ]]; then
+        echo "Notice: Watermark '$original_watermark_path' doesn't exist"
+        use_watermark=false
     fi
+else
+    # TODO: This shouldn't happen except for user error like such: --watermark ''
     use_watermark=false
 fi
 
@@ -673,20 +693,9 @@ if [[ $IS_WINDOWS == true ]]; then
         exit 1
     fi
 
-    # Check for Windows paths provided by the user in either `-s` or `-d`
-    check_windows_path() {
-        local path="$1"
-
-        # Match against absolute paths on Windows
-        if [[ $path =~ [A-Z]:\\ ]]; then
-            nix_path "$path"
-        else
-            echo -n "$path"
-        fi
-    }
-
-    src_dir="$( check_windows_path "$src_dir" )"
-    out_dir="$( check_windows_path "$out_dir" )"
+    # Convert any windows provided paths to Linux
+    src_dir=$( check_windows_path "$src_dir" )
+    out_dir=$( check_windows_path "$out_dir" )
 
     # Force watch rescans (inotify doesn't work properly on WSL)
     watch_rescan=true
