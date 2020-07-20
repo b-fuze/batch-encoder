@@ -654,7 +654,6 @@ if [[ -n "$watermark" ]]; then
         use_watermark=false
     fi
 else
-    # TODO: This shouldn't happen except for user error like such: --watermark ''
     use_watermark=false
 fi
 
