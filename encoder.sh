@@ -59,7 +59,7 @@ HAS_CYGPATH=false
 HAS_WSLPATH=false
 
 path() {
-    __cur_path="$1"
+    local __cur_path="$1"
 
     if [[ $IS_WINDOWS == true ]]; then
         if [[ $HAS_WSLPATH == true ]]; then
@@ -74,7 +74,7 @@ path() {
 
 # Convert windows paths to nix
 nix_path() {
-    __cur_path="$1"
+    local __cur_path="$1"
 
     if [[ $IS_WINDOWS == true ]]; then
         if [[ $HAS_WSLPATH == true ]]; then
@@ -640,23 +640,6 @@ if ! [[ $framerate = original || ( $framerate =~ ^[0-9]+$ && $framerate -gt 11 )
     exit 1
 fi
 
-# Check for (optional) Watermark file
-use_watermark=true
-
-# See if watermark (or default watermark) was provided and then
-# convert it to a *nix path if it isn't already
-if [[ -n "$watermark" ]]; then
-    original_watermark_path=$watermark
-    watermark=$( check_windows_path "$watermark" )
-
-    if [[ ! -f "$watermark" ]]; then
-        echo "Notice: Watermark '$original_watermark_path' doesn't exist"
-        use_watermark=false
-    fi
-else
-    use_watermark=false
-fi
-
 # Find FFmpeg executable
 ffmpeg_executable=$( which ffmpeg )
 ffprobe_executable=$( which ffprobe )
@@ -718,6 +701,23 @@ fi
 
 if [[ $watch == true ]]; then
     misc_info "Watch mode enabled"
+fi
+
+# Check for (optional) Watermark file
+use_watermark=true
+
+# See if watermark (or default watermark) was provided and then
+# convert it to a *nix path if it isn't already
+if [[ -n "$watermark" ]]; then
+    original_watermark_path="$watermark"
+    watermark=$( check_windows_path "$watermark" )
+
+    if [[ ! -f "$watermark" ]]; then
+        echo "Notice: Watermark '$original_watermark_path' not found"
+        use_watermark=false
+    fi
+else
+    use_watermark=false
 fi
 
 # Create temporary metadata files
