@@ -1139,7 +1139,11 @@ start_encoding() {
             local filter_complex_args="$vid_filter_second_filtergraph_args,$filter_complex_args[v]"
         fi
 
-        vid_output_args+=(-filter_complex "$filter_complex_args")
+        # If either watermark or subs will be burned then provide
+        # -filter_complex, otherwise omit it
+        if [[ -n "$( tr -d '[:blank:]' <<< "$filter_complex_args" )" ]]; then
+            vid_output_args+=(-filter_complex "$filter_complex_args")
+        fi
 
         # Print progress to stdout
         vid_output_args+=(-progress pipe:1)
