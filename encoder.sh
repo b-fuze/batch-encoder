@@ -953,8 +953,9 @@ process_videos_prompt() {
     # Detect subtitle streams
     local cur_vid_has_subtitles=true
     local subtitle_stream
+    local cur_vid_sub_streams=$( grep -E "Stream #.+Subtitle" <<< "$streams" )
 
-    if [[ -z "$( grep -E "Stream #.+Subtitle" <<< "$streams" )" ]]; then
+    if [[ -z "$cur_vid_sub_streams" ]]; then
         local cur_vid_has_subtitles=false
     fi
 
@@ -967,9 +968,14 @@ process_videos_prompt() {
             # then we prompt for the subtitle stream
             if [[ $auto != true ]] && ( [[ $vid_burn_subs == true ]] || confirm "Burn subtitles?" "n" ); then
                 local vid_burn_subs=true
-                echo -n "Select Subtitle [default]: "
-                read subtitle_stream
-                local subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+
+                # If there's more than one subtitle stream then prompt
+                # for the specific one
+                if [[ $( wc -l <<< "$cur_vid_sub_streams" ) -gt 1 ]]; then
+                    echo -n "Select Subtitle [default]: "
+                    read subtitle_stream
+                    local subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+                fi
             fi
         else
             echo "No subtitles detected"
