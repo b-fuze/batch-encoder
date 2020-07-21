@@ -99,6 +99,18 @@ check_windows_path() {
     fi
 }
 
+# Hide temporary files on Windows
+hide_tmp_file_windows() {
+    local path=$1
+
+    if [[ $IS_WINDOWS == true ]]; then
+        # TODO: Maybe hide all files and not just ones in the Windows' drives
+        if [[ $path =~ ^/mnt/ && -n $windows_attrib_executable ]]; then
+            attrib.exe +s +h "$( path "$path" )" &> /dev/null
+        fi
+    fi
+}
+
 # Human readable duration
 human_duration() {
     local seconds="$1"
@@ -174,6 +186,8 @@ run_ffmpeg() {
     local tmp_vid_ffmpeg_errors_filename=$( tr -sc '[:alnum:]' '-' <<< "$vid_file_out" | sed -Ee 's/^-+//;s/-+$//'  )
     local tmp_vid_ffmpeg_errors=$( dirname "$tmp_vid_enc_list" )/.batch-enc-ffmpeg-errors-${tmp_encoder_id:0:7}-$tmp_vid_ffmpeg_errors_filename
     encoder_tmp_files+=("$tmp_vid_ffmpeg_errors")
+    touch "$tmp_vid_ffmpeg_errors"
+    hide_tmp_file_windows "$tmp_vid_ffmpeg_errors"
     echo -n "" > "$tmp_vid_ffmpeg_errors"
 
     shift
@@ -654,6 +668,7 @@ fi
 ffmpeg_executable=$( which ffmpeg )
 ffprobe_executable=$( which ffprobe )
 IS_WINDOWS=false
+windows_attrib_executable=
 
 # Check for Windows FFmpeg in WSL if we haven't found a *nix
 # installed build
@@ -688,6 +703,10 @@ if [[ $IS_WINDOWS == true ]]; then
     # Convert any windows provided paths to Linux
     src_dir=$( check_windows_path "$src_dir" )
     out_dir=$( check_windows_path "$out_dir" )
+
+    # Check for `attrib.exe` Windows executable so we can hide
+    # the temporary files on Windows
+    which attrib.exe &> /dev/null && windows_attrib_executable=true
 
     # Force watch rescans (inotify doesn't work properly on WSL)
     watch_rescan=true
@@ -748,6 +767,7 @@ encoder_tmp_files=(
 # Create initially empty tmp files
 for file in "${encoder_tmp_files[@]}"; do
     touch "$file"
+    hide_tmp_file_windows "$file"
 done
 
 # Remove temporary files on Ctrl-C (SIGINT)
@@ -1082,6 +1102,7 @@ process_videos() {
         local video_details_outfile=$tmp_encoder_tmpfile_dir/.batch-enc-vid-detail-$cur_video_index-$tmp_encoder_id
         echo -n "" > "$video_details_outfile"
         encoder_tmp_files+=("$video_details_outfile")
+        hide_tmp_file_windows "$video_details_outfile"
 
         # Prompt "asynchronously" for the user details, using a disposable subshell
         # for the ability to kill it and respawn another
