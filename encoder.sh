@@ -325,7 +325,7 @@ OPTIONS" | sed -Ee '1d'
         directory.
 "
     usage_section advanced "
-    -R, --recursive
+    -R, --recursive, --no-recursive
         Whether to recursively search subdirs for
         videos to encode. Won't by default.
 
@@ -513,6 +513,9 @@ while true; do
                         ;;
                     --recursive )
                         defaults[recursive]=true
+                        ;;
+                    --no-recursive )
+                        defaults[recursive]=false
                         ;;
                     --force )
                         defaults[force]=true
