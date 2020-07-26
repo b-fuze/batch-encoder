@@ -92,7 +92,7 @@ check_windows_path() {
     local path="$1"
 
     # Match against absolute paths on Windows
-    if [[ $path =~ ^[A-Z]:\\ || $path =~ ^\\wsl$\\ ]]; then
+    if [[ $path =~ ^[A-Z]:\\ || $path =~ ^\\\\?wsl$\\ ]]; then
         nix_path "$path"
     else
         echo -n "$path"
@@ -109,6 +109,65 @@ hide_tmp_file_windows() {
             attrib.exe +s +h "$( path "$path" )" &> /dev/null
         fi
     fi
+}
+
+# Check for and load config
+load_config() {
+    local config=~/.config/batch-encoder-cfg.sh
+    local parser=$data_dir/config/parser.sh
+
+    if [[ -f $config && -f $parser ]]; then
+        . "$parser"
+        bep_cur_file=~/.config/batch-encoder-cfg.sh
+
+        # Sync the relevant variables with the parser
+        bep_sync defaults
+        bep_sync ffmpeg_input_args
+        bep_sync ffmpeg_output_args
+
+        # Finally, parse the config file
+        bep_parse < "$config"
+        misc_info "Loaded config file"
+    fi
+}
+
+# Print config when using --debug-config
+print_config() {
+    echo -e '\e[1m'"CONFIG:\e[0m"
+    local IFS=$'\n'
+    local keys=($( sort <<< "${!defaults[*]}" ))
+    local longest_key=
+
+    for key in "${keys[@]}"; do
+        if (( ${#key} > ${#longest_key} )); then
+            longest_key=$key
+        fi
+    done
+
+    # Convert to whitespace
+    longest_key=$( tr -c '' ' ' <<< "$longest_key" )
+
+    for key in "${keys[@]}"; do
+        local key_length=${#key}
+        echo -en '\e[32m'"  $key\e[0m:${longest_key:$key_length}"
+        echo -en "\e[95m'\e[37m"
+        echo -n "${defaults[$key]}"
+        echo -e "\e[95m'\e[0m"
+    done
+
+    echo -e '\n\e[1m'"FFMPEG INPUT ARGS:\e[0m"
+    for arg in "${ffmpeg_input_args[@]}"; do
+        echo -en "  \e[95m'\e[37m"
+        echo -n "$arg"
+        echo -e "\e[95m'\e[0m"
+    done
+
+    echo -e '\n\e[1m'"FFMPEG OUTPUT ARGS:\e[0m"
+    for arg in "${ffmpeg_output_args[@]}"; do
+        echo -en "  \e[95m'\e[37m"
+        echo -n "$arg"
+        echo -e "\e[95m'\e[0m"
+    done
 }
 
 # Human readable duration
@@ -386,6 +445,9 @@ OPTIONS" | sed -Ee '1d'
     --debug-ffmpeg-errors
         Display FFmpeg error log even after successful
         encodes.
+
+    --debug-config
+        Print the resulting configuration.
 "
     usage_section advanced "
     --fatal
@@ -444,6 +506,33 @@ arg_mapping[-s]=--source
 arg_mapping[-R]=--recursive
 arg_mapping[-w]=--watch
 arg_mapping[-h]=--help
+
+# FFmpeg argument defaults
+ffmpeg_input_args=(
+    -hide_banner
+    -loglevel warning
+    -strict -2        # In case old version of FFmpeg to enable experimental AAC encoder
+)
+
+ffmpeg_output_args=(
+    -y                # Overwrite existing files without prompting, we check instead
+    -c:v libx264 
+    -preset faster 
+    -tune animation 
+    -trellis 2 
+    -subq 10 
+    -me_method umh 
+    -crf 26.5 
+    -profile:v high 
+    -level 4.1 
+    -pix_fmt yuv420p 
+    -c:a aac 
+    -b:a 192k
+    -movflags faststart # Web optimization
+)
+
+# Check for and load config
+load_config
 
 cur_arg="$1"
 consume_next=false
@@ -567,6 +656,10 @@ while true; do
                         ;;
                     --debug-ffmpeg-errors )
                         defaults[debug_ffmpeg_errors]=true
+                        ;;
+                    --debug-config )
+                        print_config
+                        exit 0
                         ;;
                     --fatal )
                         defaults[fatal]=true
@@ -1130,30 +1223,6 @@ process_videos() {
     # INT (ctrl-c) signals will now force quit batch encoder
     is_processing_videos=false
 }
-
-# Required FFmpeg args
-ffmpeg_input_args=(
-    -hide_banner
-    -loglevel warning
-    -strict -2        # In case old version of FFmpeg to enable experimental AAC encoder
-)
-
-ffmpeg_output_args=(
-    -y                # Overwrite existing files without prompting, we check instead
-    -c:v libx264 
-    -preset faster 
-    -tune animation 
-    -trellis 2 
-    -subq 10 
-    -me_method umh 
-    -crf 26.5 
-    -profile:v high 
-    -level 4.1 
-    -pix_fmt yuv420p 
-    -c:a aac 
-    -b:a 192k
-    -movflags faststart # Web optimization
-)
 
 # FFmpeg errors from most recent encoding
 ffmpeg_last_error_log=""
