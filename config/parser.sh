@@ -121,7 +121,6 @@ bep_node_recede() {
 
     if (( bep_cur_depth < 0 )); then
         return 0
-        # echo "Parsing error: Unexpected end of input" 1>&2
     fi
 
     bep_cur_index=${bep_cur_index_depth[-1]}
@@ -351,25 +350,6 @@ bep_scalar_or_array_var_assignment() {
             fi
         fi
 
-        # echo -n "$invalid_var"
-        # echo -en "\e[1m\e[92m$var_name\e[0m = "
-
-        # if [[ $var_type == $BEP_SCALAR_VAR ]]; then
-        #     echo -en "\e[95m'\e[0m"
-        #     echo -n "$bep_scalar_array_var_node_cur_scalar_value"
-        #     echo -e "\e[95m'\e[0m"
-        # else
-        #     echo -n "["
-        #     local delim=
-        #     for item in "${array_var[@]}"; do
-        #         echo -en "$delim\e[95m'\e[0m"
-        #         echo -n "$item"
-        #         echo -en "\e[95m'\e[0m"
-        #         local delim=', '
-        #     done
-        #     echo "]"
-        # fi
-        # echo
         bep_node_consume
         return 0
     else
@@ -475,8 +455,6 @@ bep_dict_var_assignment() {
 
             bep_var_types[$var_name]=$BEP_DICT_VAR
             dict_value[$bep_cur_dict_subscript]=$bep_cur_scalar_value
-            # echo "$var_name [$bep_cur_dict_subscript] = '$bep_cur_scalar_value'"
-            # echo
             bep_node_consume
             return 0
         else
@@ -627,10 +605,6 @@ bep_scalar_value() {
                         '(' )
                             bep_syntax_error "Command substitution isn't supported"
                             exit 1
-                            # bep_scalar_command_sub || {
-                            #     bep_syntax_error "Bad command substitution"
-                            #     exit 1
-                            # } 
                             ;;
                         '*' | '@' | '#' | '!' | '?' )
                             bep_syntax_info "Possible error: '\$$cur_char'"
@@ -799,53 +773,6 @@ bep_scalar_var_ref() {
     fi
 }
 
-# --- Command Substition ---
-# This is not evaluated and is treated as a literal string without quotes.
-bep_scalar_command_sub() {
-    :
-}
-
-# --- Parameter expansion ---
-bep_param() {
-    :
-}
-
-# Valid parameter name/identifier
-bep_param_name() {
-    :
-}
-
-bep_count_param() {
-    :
-}
-
-# ${#scalar_var}
-bep_count_scalar_param() {
-    :
-}
-
-# ${#array_or_dict[1]} or ${#array_or_dict[foo]}
-bep_count_array_or_dict_ref_param() {
-    :
-}
-
-# ${#array_or_dict[@]}
-bep_count_array_or_dict_all_param() {
-    :
-}
-
-# ${array_or_dict[1]} or ${array_or_dict[foo]}
-bep_array_or_dict_ref_param() {
-    :
-}
-
-# ${array_or_dict[@]}
-# Expands to individual items in an array, combines
-# items into a single string delimited by spaces for scalars
-bep_array_or_dict_all_param() {
-    :
-}
-
 # --------------------
 # Ignored parse nodes
 # --------------------
@@ -876,55 +803,4 @@ bep_comment() {
     (( bep_cur_index += ${#comment_content} ))
     bep_node_consume
 }
-
-# --- Statements ---
-bep_stmt() {
-    :
-}
-
-bep_function_stmt() {
-    :
-}
-
-bep_for_stmt() {
-    :
-}
-
-bep_while_stmt() {
-    :
-}
-
-bep_case_stmt() {
-    :
-}
-
-bep_if_stmt() {
-    :
-}
-
-bep_simple_command_stmt() {
-    :
-}
-
-# --- Compound commands ---
-bep_paren_cc() {
-    :
-}
-
-bep_brace_cc() {
-    :
-}
-
-bep_arithmetic_cc() {
-    :
-}
-
-bep_condition_cc() {
-    :
-}
-
-# Testing
-# bep_cur_file='config/test.sh'
-# bep_cur_file='config/config.sh'
-# bep_parse < "$bep_cur_file"
 
