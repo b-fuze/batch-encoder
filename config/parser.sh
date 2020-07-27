@@ -116,14 +116,9 @@ bep_node_consume() {
 }
 
 bep_node_recede() {
+    bep_cur_index=${bep_cur_index_depth[-1]}
     unset bep_cur_index_depth[-1]
     (( bep_cur_depth-- ))
-
-    if (( bep_cur_depth < 0 )); then
-        return 0
-    fi
-
-    bep_cur_index=${bep_cur_index_depth[-1]}
 }
 
 # Sync index to line/column
