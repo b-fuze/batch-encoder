@@ -170,13 +170,18 @@ bep_error() {
 
 bep_syntax_error() {
     bep_node_lc_sync_index
-    echo -ne '\e[37m'"config_parser:\e[0m \e[31m""syntax error\e[0m \e[37m""in $bep_cur_file\e[0m:\e[92m$(( bep_cur_line + 1 ))\e[0m:\e[92m$(( bep_cur_col + 1 ))\e[0m:"
+    echo -ne '\e[37m'"config_parser:\e[0m \e[31m""syntax error\e[0m \e[37m""in "
+    echo -n "$bep_cur_file"
+    echo -en "\e[0m:\e[92m$(( bep_cur_line + 1 ))\e[0m:\e[92m$(( bep_cur_col + 1 ))\e[0m:"
     echo " $1" 1>&2
 }
 
 bep_syntax_info() {
     bep_node_lc_sync_index
-    echo "Info:$(( bep_cur_line + 1 )):$(( bep_cur_col + 1 )): $1" 1>&2
+    echo -ne '\e[37m'"config_parser:\e[0m \e[33m""info:\e[0m \e[37m"
+    echo -n "$bep_cur_file"
+    echo -en "\e[0m:\e[92m$(( bep_cur_line + 1 ))\e[0m:\e[92m$(( bep_cur_col + 1 ))\e[0m:"
+    echo " $1" 1>&2
 }
 
 # --------------------
