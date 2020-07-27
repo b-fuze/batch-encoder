@@ -698,13 +698,13 @@ bep_double_quoted_string() {
                 (( bep_cur_index += (${#string_start} - 1) ))
 
                 if [[ -n $save_scalar ]]; then
-                    local string=$( sed -Ee 's/\\"/"/g; s/(\$|\\)\$/$/g; s/\\`/`/g;' <<< "$string_start"; echo e )
+                    local string=$( sed -Ee 's/\\"/"/g; s/(\$|\\)\$/$/g; s/\\`/`/g; s/\\\\/\\/g;' <<< "$string_start"; echo e )
                     bep_cur_dbl_quoted_str_node_scalar_value+="${string:0:-3}"
                 fi
 
                 bep_scalar_var_ref $save_scalar $save_target || {
-                    bep_syntax_info "Not a var ref"
-                    exit 1
+                    bep_cur_dbl_quoted_str_node_scalar_value+='$'
+                    (( bep_cur_index++ ))
                 }
                 ;;
             \` )
