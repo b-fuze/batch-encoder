@@ -145,7 +145,7 @@ print_config() {
     done
 
     # Convert to whitespace
-    longest_key=$( tr -c '' ' ' <<< "$longest_key" )
+    local longest_key=$( tr -c '' ' ' <<< "$longest_key" )
 
     for key in "${keys[@]}"; do
         local key_length=${#key}
@@ -155,19 +155,68 @@ print_config() {
         echo -e "\e[95m'\e[0m"
     done
 
-    echo -e '\n\e[1m'"FFMPEG INPUT ARGS:\e[0m"
+    # TODO: DRY
+    # Calculate padding
+    local longest_arg=
     for arg in "${ffmpeg_input_args[@]}"; do
-        echo -en "  \e[95m'\e[37m"
-        echo -n "$arg"
-        echo -e "\e[95m'\e[0m"
+        if [[ ${arg:0:1} = - && ${#arg} -gt ${#longest_arg} ]]; then
+            longest_arg=$arg
+        fi
     done
 
-    echo -e '\n\e[1m'"FFMPEG OUTPUT ARGS:\e[0m"
-    for arg in "${ffmpeg_output_args[@]}"; do
-        echo -en "  \e[95m'\e[37m"
+    # Convert to whitespace
+    local longest_arg=$( tr -c '' ' ' <<< "$longest_arg" )
+
+    echo -en '\n\e[1m'"FFMPEG INPUT ARGS:\e[0m"
+    local initial_newline=$'\n  '
+    for arg in "${ffmpeg_input_args[@]}"; do
+        local tail=
+        case ${arg:0:1} in
+            '-' )
+                local arg_length=${#arg}
+                local tail=${longest_arg:$arg_length}
+                echo -en "\n  \e[95m'\e[37m"
+                ;;
+            * )
+                echo -en "$initial_newline\e[95m'\e[37m"
+                ;;
+        esac
         echo -n "$arg"
-        echo -e "\e[95m'\e[0m"
+        echo -en "\e[95m'\e[0m$tail"
+        local initial_newline=
     done
+
+    # Calculate padding
+    local longest_arg=
+    for arg in "${ffmpeg_output_args[@]}"; do
+        if [[ ${arg:0:1} = - && ${#arg} -gt ${#longest_arg} ]]; then
+            longest_arg=$arg
+        fi
+    done
+
+    # Convert to whitespace
+    local longest_arg=$( tr -c '' ' ' <<< "$longest_arg" )
+
+    echo -en '\n\n\e[1m'"FFMPEG OUTPUT ARGS:\e[0m"
+    local initial_newline=$'\n  '
+    for arg in "${ffmpeg_output_args[@]}"; do
+        local tail=
+        case ${arg:0:1} in
+            '-' )
+                local arg_length=${#arg}
+                local tail=${longest_arg:$arg_length}
+                echo -en "\n  \e[95m'\e[37m"
+                ;;
+            * )
+                echo -en "$initial_newline\e[95m'\e[37m"
+                ;;
+        esac
+        echo -n "$arg"
+        echo -en "\e[95m'\e[0m$tail"
+        local initial_newline=
+    done
+
+    echo
 }
 
 # Human readable duration
