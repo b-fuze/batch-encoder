@@ -1170,8 +1170,8 @@ process_videos_prompt() {
 
     if [[ $cur_vid_has_subtitles == true ]]; then
         IFS=$'\n'
-        for sstream in $streams; do
-            if grep -qF 'Stream #0:'"$subtitle_stream" <<< "$streams"; then
+        for sstream in $( grep -F 'Stream #' <<< "$streams" | grep -F ': Subtitle' ); do
+            if grep -qF 'Stream #0:'"$subtitle_stream" <<< "$sstream"; then
                 break
             fi
 
