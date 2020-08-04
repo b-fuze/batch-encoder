@@ -961,7 +961,7 @@ cleanup() {
                 ;;
             q )
                 is_processing_videos=false
-                cleanup
+                cleanup true
                 ;;
             * )
                 cleanup
@@ -969,14 +969,13 @@ cleanup() {
         esac
 
     else
-        local normal_exit=$1
         for file in "${encoder_tmp_files[@]}"; do
             if [[ -f "$file" ]]; then
                 rm "$file"
             fi
         done
 
-        if [[ -z $normal_exit ]]; then
+        if [[ -n $is_trap_invocation ]]; then
             echo -e '\e[?25h\e[2K\r'"Exiting batch encoder"
         fi
         exit
