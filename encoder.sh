@@ -899,6 +899,11 @@ tmp_vid_enc_watch_list=$tmp_encoder_tmpfile_dir/.batch-enc-watch-list-$tmp_encod
 tmp_vid_enc_watch_sync=$tmp_encoder_tmpfile_dir/.batch-enc-watch-lock-$tmp_encoder_id
 tmp_vid_enc_watch_invalid_list=$tmp_encoder_tmpfile_dir/.batch-enc-watch-invalid-list-$tmp_encoder_id
 
+# Create temporary file dir if it doesn't exist
+if [[ ! -d $tmp_encoder_tmpfile_dir ]]; then
+  mkdir -p "$tmp_encoder_tmpfile_dir"
+fi
+
 encoder_tmp_files=(
     "$tmp_vid_enc_list"
     "$tmp_vid_enc_watch_list"
