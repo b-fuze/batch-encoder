@@ -11,6 +11,7 @@ BATCH_ENCODER_VERSION=0.1.9
 #
 # It also works on Windows via WSL as long as both `ffmpeg.exe` and 
 # `ffprobe.exe` are in your PATH
+# vim:set shiftwidth=4 tabstop=4:
 
 # [1] TODO: Cache FFprobes output somewhere
 # [2] TODO: Validate stream options
@@ -1376,6 +1377,10 @@ start_encoding() {
             else
                 echo "Error: Subtitle type '$subtitle_stream_type' not supported"
             fi
+        else
+            # This video won't burn any subs so make sure to
+            # -map the video source
+            vid_output_args+=(-map 0:$video_stream)
         fi
 
         # Choose different audio stream
