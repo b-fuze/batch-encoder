@@ -1419,8 +1419,13 @@ start_encoding() {
         IFS=","
         local filter_complex_args="${vid_filter_args[*]}"
         if [[ -n $vid_filter_second_filtergraph_args ]]; then
+            # Prepend comma to `filter_complex_args` if any
+            if [[ -n $filter_complex_args ]]; then
+                local filter_complex_args=','$filter_complex_args
+            fi
+
             # Put VOBSub filter at the beginning
-            local filter_complex_args="$vid_filter_second_filtergraph_args,$filter_complex_args[v]"
+            local filter_complex_args="${vid_filter_second_filtergraph_args}${filter_complex_args}[v]"
         fi
 
         # If either watermark or subs will be burned then provide
