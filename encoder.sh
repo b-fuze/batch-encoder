@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BATCH_ENCODER_VERSION=0.1.4
+BATCH_ENCODER_VERSION=0.1.10
 
 # Author: Mike32
 #
@@ -11,6 +11,7 @@ BATCH_ENCODER_VERSION=0.1.4
 #
 # It also works on Windows via WSL as long as both `ffmpeg.exe` and 
 # `ffprobe.exe` are in your PATH
+# vim:set shiftwidth=4 tabstop=4:
 
 # [1] TODO: Cache FFprobes output somewhere
 # [2] TODO: Validate stream options
@@ -59,7 +60,7 @@ HAS_CYGPATH=false
 HAS_WSLPATH=false
 
 path() {
-    __cur_path="$1"
+    local __cur_path="$1"
 
     if [[ $IS_WINDOWS == true ]]; then
         if [[ $HAS_WSLPATH == true ]]; then
@@ -74,7 +75,7 @@ path() {
 
 # Convert windows paths to nix
 nix_path() {
-    __cur_path="$1"
+    local __cur_path="$1"
 
     if [[ $IS_WINDOWS == true ]]; then
         if [[ $HAS_WSLPATH == true ]]; then
@@ -85,6 +86,138 @@ nix_path() {
     else
         echo -n "$__cur_path"
     fi
+}
+
+# Check for Windows paths (and convert them to *nix paths)
+check_windows_path() {
+    local path="$1"
+
+    # Match against absolute paths on Windows
+    if [[ $path =~ ^[A-Z]:\\ || $path =~ ^\\\\?wsl$\\ ]]; then
+        nix_path "$path"
+    else
+        echo -n "$path"
+    fi
+}
+
+# Hide temporary files on Windows
+hide_tmp_file_windows() {
+    local path=$1
+
+    if [[ $IS_WINDOWS == true ]]; then
+        # TODO: Maybe hide all files and not just ones in the Windows' drives
+        if [[ $path =~ ^/mnt/ && -n $windows_attrib_executable ]]; then
+            attrib.exe +s +h "$( path "$path" )" &> /dev/null
+        fi
+    fi
+}
+
+# Check for and load config
+load_config() {
+    local config=~/.config/batch-encoder-cfg.sh
+    local parser=$data_dir/config/parser.sh
+
+    if [[ -f $config && -f $parser ]]; then
+        . "$parser"
+        bep_cur_file=~/.config/batch-encoder-cfg.sh
+
+        # Sync the relevant variables with the parser
+        bep_sync defaults
+        bep_sync ffmpeg_input_args
+        bep_sync ffmpeg_output_args
+
+        # Finally, parse the config file
+        bep_parse < "$config"
+        misc_info "Loaded config file"
+    fi
+}
+
+# Print config when using --debug-config
+print_config() {
+    echo -e '\e[1m'"CONFIG:\e[0m"
+    local IFS=$'\n'
+    local keys=($( sort <<< "${!defaults[*]}" ))
+    local longest_key=
+
+    for key in "${keys[@]}"; do
+        if (( ${#key} > ${#longest_key} )); then
+            longest_key=$key
+        fi
+    done
+
+    # Convert to whitespace
+    local longest_key=$( tr -c '' ' ' <<< "$longest_key" )
+
+    for key in "${keys[@]}"; do
+        local key_length=${#key}
+        echo -en '\e[32m'"  $key\e[0m:${longest_key:$key_length}"
+        echo -en "\e[95m'\e[37m"
+        echo -n "${defaults[$key]}"
+        echo -e "\e[95m'\e[0m"
+    done
+
+    # TODO: DRY
+    # Calculate padding
+    local longest_arg=
+    for arg in "${ffmpeg_input_args[@]}"; do
+        if [[ ${arg:0:1} = - && ${#arg} -gt ${#longest_arg} ]]; then
+            longest_arg=$arg
+        fi
+    done
+
+    # Convert to whitespace
+    local longest_arg=$( tr -c '' ' ' <<< "$longest_arg" )
+
+    echo -en '\n\e[1m'"FFMPEG INPUT ARGS:\e[0m"
+    local initial_newline=$'\n  '
+    for arg in "${ffmpeg_input_args[@]}"; do
+        local tail=
+        case ${arg:0:1} in
+            '-' )
+                local arg_length=${#arg}
+                local tail=${longest_arg:$arg_length}
+                echo -en "\n  \e[95m'\e[37m"
+                ;;
+            * )
+                echo -en "$initial_newline\e[95m'\e[37m"
+                ;;
+        esac
+        echo -n "$arg"
+        echo -en "\e[95m'\e[0m$tail"
+        local initial_newline=
+    done
+
+    # Calculate padding
+    local longest_arg=
+    for arg in "${ffmpeg_output_args[@]}"; do
+        if [[ ${arg:0:1} = - && ${#arg} -gt ${#longest_arg} ]]; then
+            longest_arg=$arg
+        fi
+    done
+
+    # Convert to whitespace
+    local longest_arg=$( tr -c '' ' ' <<< "$longest_arg" )
+
+    echo -en '\n\n\e[1m'"FFMPEG OUTPUT ARGS:\e[0m"
+    local initial_newline=$'\n  '
+    for arg in "${ffmpeg_output_args[@]}"; do
+        local tail=
+        case ${arg:0:1} in
+            '-' )
+                local arg_length=${#arg}
+                local tail=${longest_arg:$arg_length}
+                echo -en "\n  \e[95m'\e[37m"
+                ;;
+            * )
+                echo -en "$initial_newline\e[95m'\e[37m"
+                ;;
+        esac
+        echo -n "$arg"
+        echo -en "\e[95m'\e[0m$tail"
+        local initial_newline=
+    done
+
+    echo
 }
 
 # Human readable duration
@@ -109,6 +242,13 @@ human_duration() {
     local output="${output}${seconds}s"
 
     echo "$output"
+}
+
+# Get first stream ID of a specific stream type
+get_first_stream_id() {
+    local type=$1
+    local streams=$2
+    grep -E "$type" -m 1 <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/'
 }
 
 # Get video stream frame count
@@ -155,6 +295,8 @@ run_ffmpeg() {
     local tmp_vid_ffmpeg_errors_filename=$( tr -sc '[:alnum:]' '-' <<< "$vid_file_out" | sed -Ee 's/^-+//;s/-+$//'  )
     local tmp_vid_ffmpeg_errors=$( dirname "$tmp_vid_enc_list" )/.batch-enc-ffmpeg-errors-${tmp_encoder_id:0:7}-$tmp_vid_ffmpeg_errors_filename
     encoder_tmp_files+=("$tmp_vid_ffmpeg_errors")
+    touch "$tmp_vid_ffmpeg_errors"
+    hide_tmp_file_windows "$tmp_vid_ffmpeg_errors"
     echo -n "" > "$tmp_vid_ffmpeg_errors"
 
     shift
@@ -313,7 +455,7 @@ OPTIONS" | sed -Ee '1d'
         directory.
 "
     usage_section advanced "
-    -R, --recursive
+    -R, --recursive, --no-recursive
         Whether to recursively search subdirs for
         videos to encode. Won't by default.
 
@@ -353,6 +495,9 @@ OPTIONS" | sed -Ee '1d'
     --debug-ffmpeg-errors
         Display FFmpeg error log even after successful
         encodes.
+
+    --debug-config
+        Print the resulting configuration.
 "
     usage_section advanced "
     --fatal
@@ -411,6 +556,33 @@ arg_mapping[-s]=--source
 arg_mapping[-R]=--recursive
 arg_mapping[-w]=--watch
 arg_mapping[-h]=--help
+
+# FFmpeg argument defaults
+ffmpeg_input_args=(
+    -hide_banner
+    -loglevel warning
+    -strict -2        # In case old version of FFmpeg to enable experimental AAC encoder
+)
+
+ffmpeg_output_args=(
+    -y                # Overwrite existing files without prompting, we check instead
+    -c:v libx264 
+    -preset faster 
+    -tune animation 
+    -trellis 2 
+    -subq 10 
+    -me_method umh 
+    -crf 26.5 
+    -profile:v high 
+    -level 4.1 
+    -pix_fmt yuv420p 
+    -c:a aac 
+    -b:a 192k
+    -movflags faststart # Web optimization
+)
+
+# Check for and load config
+load_config
 
 cur_arg="$1"
 consume_next=false
@@ -502,6 +674,9 @@ while true; do
                     --recursive )
                         defaults[recursive]=true
                         ;;
+                    --no-recursive )
+                        defaults[recursive]=false
+                        ;;
                     --force )
                         defaults[force]=true
                         ;;
@@ -531,6 +706,10 @@ while true; do
                         ;;
                     --debug-ffmpeg-errors )
                         defaults[debug_ffmpeg_errors]=true
+                        ;;
+                    --debug-config )
+                        print_config
+                        exit 0
                         ;;
                     --fatal )
                         defaults[fatal]=true
@@ -628,20 +807,11 @@ if ! [[ $framerate = original || ( $framerate =~ ^[0-9]+$ && $framerate -gt 11 )
     exit 1
 fi
 
-# Check for (optional) Watermark file
-use_watermark=true
-
-if [[ ! -f "$watermark" ]]; then
-    if [[ -n "$watermark" ]]; then
-        echo "Notice: Watermark '$watermark' doesn't exist"
-    fi
-    use_watermark=false
-fi
-
 # Find FFmpeg executable
 ffmpeg_executable=$( which ffmpeg )
 ffprobe_executable=$( which ffprobe )
 IS_WINDOWS=false
+windows_attrib_executable=
 
 # Check for Windows FFmpeg in WSL if we haven't found a *nix
 # installed build
@@ -673,20 +843,13 @@ if [[ $IS_WINDOWS == true ]]; then
         exit 1
     fi
 
-    # Check for Windows paths provided by the user in either `-s` or `-d`
-    check_windows_path() {
-        local path="$1"
+    # Convert any windows provided paths to Linux
+    src_dir=$( check_windows_path "$src_dir" )
+    out_dir=$( check_windows_path "$out_dir" )
 
-        # Match against absolute paths on Windows
-        if [[ $path =~ [A-Z]:\\ ]]; then
-            nix_path "$path"
-        else
-            echo -n "$path"
-        fi
-    }
-
-    src_dir="$( check_windows_path "$src_dir" )"
-    out_dir="$( check_windows_path "$out_dir" )"
+    # Check for `attrib.exe` Windows executable so we can hide
+    # the temporary files on Windows
+    which attrib.exe &> /dev/null && windows_attrib_executable=true
 
     # Force watch rescans (inotify doesn't work properly on WSL)
     watch_rescan=true
@@ -712,12 +875,35 @@ if [[ $watch == true ]]; then
     misc_info "Watch mode enabled"
 fi
 
+# Check for (optional) Watermark file
+use_watermark=true
+
+# See if watermark (or default watermark) was provided and then
+# convert it to a *nix path if it isn't already
+if [[ -n "$watermark" ]]; then
+    original_watermark_path="$watermark"
+    watermark=$( check_windows_path "$watermark" )
+
+    if [[ ! -f "$watermark" ]]; then
+        echo "Notice: Watermark '$original_watermark_path' not found"
+        use_watermark=false
+    fi
+else
+    use_watermark=false
+fi
+
 # Create temporary metadata files
 tmp_encoder_id=$( date +%s%N | sha1sum ); tmp_encoder_id=${tmp_encoder_id:0:16}
-tmp_vid_enc_list=$( readlink -f "$out_dir" )/.batch-enc-list-$tmp_encoder_id
-tmp_vid_enc_watch_list=$( readlink -f "$out_dir" )/.batch-enc-watch-list-$tmp_encoder_id
-tmp_vid_enc_watch_sync=$( readlink -f "$out_dir" )/.batch-enc-watch-lock-$tmp_encoder_id
-tmp_vid_enc_watch_invalid_list=$( readlink -f "$out_dir" )/.batch-enc-watch-invalid-list-$tmp_encoder_id
+tmp_encoder_tmpfile_dir=$( readlink -f "$out_dir" )
+tmp_vid_enc_list=$tmp_encoder_tmpfile_dir/.batch-enc-list-$tmp_encoder_id
+tmp_vid_enc_watch_list=$tmp_encoder_tmpfile_dir/.batch-enc-watch-list-$tmp_encoder_id
+tmp_vid_enc_watch_sync=$tmp_encoder_tmpfile_dir/.batch-enc-watch-lock-$tmp_encoder_id
+tmp_vid_enc_watch_invalid_list=$tmp_encoder_tmpfile_dir/.batch-enc-watch-invalid-list-$tmp_encoder_id
+
+# Create temporary file dir if it doesn't exist
+if [[ ! -d $tmp_encoder_tmpfile_dir ]]; then
+  mkdir -p "$tmp_encoder_tmpfile_dir"
+fi
 
 encoder_tmp_files=(
     "$tmp_vid_enc_list"
@@ -729,24 +915,80 @@ encoder_tmp_files=(
 # Create initially empty tmp files
 for file in "${encoder_tmp_files[@]}"; do
     touch "$file"
+    hide_tmp_file_windows "$file"
 done
 
 # Remove temporary files on Ctrl-C (SIGINT)
+# if not processing videos
 cleanup() {
-    local normal_exit=$1
-    for file in "${encoder_tmp_files[@]}"; do
-        if [[ -f "$file" ]]; then
-            rm "$file"
-        fi
-    done
+    local is_trap_invocation=$1
 
-    if [[ -z $normal_exit ]]; then
-        echo -e '\e[?25h\e[2K\r'"Exiting batch encoder"
+    # Prompt the user whether they wish to quit, skip a video, or fix
+    # the parameters of a previous video
+    if [[ $is_processing_videos == true && $watch == false ]]; then
+        local prompt_formatting=
+        if [[ -n $is_trap_invocation ]]; then
+            local prompt_formatting='\n'
+        fi
+
+        local prompt_formatting+='\n\e[92m\e[1m'
+
+        echo -en "$prompt_formatting""Choose next action"'\e[0m'" [$( b "Q" )uit, $( b "S" )kip, $( b "F" )ix, $( b "N" )umber]: "
+        local next_action
+        read -r next_action
+        local next_action=${next_action,,*}
+
+        case "${next_action:0:1}" in
+            n )
+                old_video_index=$(( cur_video_index ))
+                echo -n "Enter video number [previous]: "
+
+                local next_video
+                read -r next_video
+
+                # Adjust the number from the user to the index
+                if [[ -n next_video ]]; then
+                    (( next_video -= 2 ))
+                # Use the previous video as default
+                else
+                    local next_video=$(( cur_video_index - 1 ))
+                    old_video_index=-1
+                fi
+
+                cur_video_index=$next_video
+                ;;
+            f )
+                (( cur_video_index-- ))
+                ;;
+            s )
+                echo -en '\e[95m'"Skipped \e[1m$(( cur_video_index + 1 )):\e[0m \e[37m"
+                echo -n  "$( basename "${videos[$cur_video_index]}" )"
+                echo -e "\e[0m"
+                ;;
+            q )
+                is_processing_videos=false
+                cleanup true
+                ;;
+            * )
+                cleanup
+                ;;
+        esac
+
+    else
+        for file in "${encoder_tmp_files[@]}"; do
+            if [[ -f "$file" ]]; then
+                rm "$file"
+            fi
+        done
+
+        if [[ -n $is_trap_invocation ]]; then
+            echo -e '\e[?25h\e[2K\r'"Exiting batch encoder"
+        fi
+        exit
     fi
-    exit
 }
 
-trap cleanup INT
+trap 'cleanup true' INT
 
 # Batch Encoder custom exit
 be_exit() {
@@ -793,161 +1035,159 @@ find_source_videos() {
     fi
 }
 
-# Initially empty video details
-video_details=()
-video_count=0
-video_successful_count=0
+# A video stream processing prompt that can be
+# cancelled and repeated
+process_videos_prompt() {
+    local video=$1
+    local vid_dir=$2
+    local vid_file=$3
+    local video_details_outfile=$4
 
-# Process all videos in the global $videos array and save the results to
-# $video_details
-process_videos() {
-    local is_watch_invocation=$1
+    local streams=
+    local vid_out="$vid_dir/${vid_file%.*}.mp4"
+    local cur_vid_auto=$auto
+    local cur_vid_details=
+    local video_stream=
+    local audio_stream=
+    local subtitle_stream=
+    local subtitle_stream_type=
+    local vid_burn_subs=$burn_subs
 
-    video_details=()
-    video_count=${#videos[@]}
-    echo "Found $video_count videos""$is_watch_invocation"
-    echo -e '\n\e[95m\e[1m'"➤ Processing videos..."'\e[0m'
+    if [[ $cur_vid_auto == null ]]; then
+        confirm "Find streams automatically?" "y" && cur_vid_auto=true
+    fi
 
-    # Gather preliminary information about the videos
-    cur_video_index=1
-    for video in "${videos[@]}"; do
-        vid_dir="$( dirname "$video" )"
-        vid_dir_print="$( dirname "$video" )/"
-        vid_file="$( basename "$video" )"
+    # Get list of all streams
+    local streams=$( "$ffprobe_executable" "$( path "$src_dir/$video" )" 2>&1 )
 
-        # Don't print dir if it's just './'
-        vid_dir_print=${vid_dir_print#./}
-        echo -e "\nProcessing [$cur_video_index/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
+    # Duration line is independent of streams
+    local vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
 
-        streams=
-        vid_out="$vid_dir/${vid_file%.*}.mp4"
-        cur_vid_auto=$auto
-        cur_vid_details=
-        video_stream=
-        audio_stream=
-        subtitle_stream=
-        subtitle_stream_type=
-        vid_burn_subs=$burn_subs
+    # Get all video streams' (estimated) frame counts
+    local vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" )"
+    local cur_vid_vid_streams=()
 
-        if [[ $cur_vid_auto == null ]]; then
-            confirm "Find streams automatically?" "y" && cur_vid_auto=true
+    # Loop all possible video streams
+    local IFS=$'\n'
+    for cur_vid_stream_details in $vid_video_streams; do
+        local vid_stream_framecount="$( get_stream_framecount "$( echo -en "$vid_duration_line\n$cur_vid_stream_details" )" )"
+        local cur_vid_vid_streams+=("$vid_stream_framecount")
+    done
+
+    # Determine streams either automatically or by prompt
+    if [[ $cur_vid_auto == true ]]; then
+        # Burns subs automatically too (mirroring Meow's original script)
+        [[ $vid_burn_subs == null ]] && vid_burn_subs=true
+    else
+        # Filter non video/audio/subtitle streams
+        local vid_sed_filter_stream_options=(-n -e '/Video|Audio|Subtitle/p')
+
+        if [[ $verbose_streams == true ]]; then
+            local vid_sed_filter_stream_options=()
         fi
 
-        # Get list of all streams
-        streams=$( "$ffprobe_executable" "$( path "$src_dir/$video" )" 2>&1 ) # | grep 'Stream #0' )
+        # Print streams human-readable
+        echo "$streams" | grep 'Stream #0' | 
+            sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' \
+                -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' \
+                -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
 
-        # Duration line is independent of streams
-        vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
+        # If there are at least 2 video or audio streams then prompt for
+        # either, otherwise just select the only stream in the video
+        local vid_audio_stream_count=$( grep -E 'Audio' -c <<< "$streams" )
+        local video_stream
+        local audio_stream
 
-        # Get all video streams' (estimated) frame counts
-        vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" )"
-        cur_vid_vid_streams=()
-        cur_vid_stream=1
-
-        # Loop all possible video streams
-        while true; do
-            cur_vid_stream_details="$( echo "$vid_video_streams" | sed -ne "${cur_vid_stream},0p" )"
-
-            # No more streams to process
-            [[ -z $cur_vid_stream_details ]] && break
-
-            vid_stream_framecount="$( get_stream_framecount "$( echo -en "$vid_duration_line\n$cur_vid_stream_details" )" )"
-            cur_vid_vid_streams+=("$vid_stream_framecount")
-
-            (( cur_vid_stream++ ))
-        done
-
-        # Determine streams either automatically or by prompt
-        if [[ $cur_vid_auto == true ]]; then
-            # Burns subs automatically too (mirroring Meow's original script)
-            [[ $vid_burn_subs == null ]] && vid_burn_subs=true
-        else
-            # Filter non video/audio/subtitle streams
-            vid_sed_filter_stream_options=(-n -e '/Video|Audio|Subtitle/p')
-
-            if [[ $verbose_streams == true ]]; then
-                vid_sed_filter_stream_options=()
-            fi
-
-            # Print streams human-readable
-            echo "$streams" | grep 'Stream #0' | 
-                sed -Ee 's/Stream #0:([0-9]+):/Stream \1 ->/' \
-                    -e 's/Stream #0:([0-9]+)([^:]+): ([^:]+)/Stream \1 -> \3 \2/' \
-                    -e 's/(Video|Audio|Subtitle|Attachment)/\x1B[1m\1\x1B[0m/' "${vid_sed_filter_stream_options[@]}"
-
+        # Determine which video stream to use
+        if (( ${#cur_vid_vid_streams[@]} > 1 )); then
             echo -n "Select Video: "
             read video_stream
+            local video_stream=$( sed -Ee 's/^\s*([0-9]+).*/\1/' <<< "$video_stream" )
+        else
+            local video_stream=$( get_first_stream_id "Video" "$streams" )
+        fi
+
+        # Determine which audio stream to use
+        if (( vid_audio_stream_count > 1 )); then
             echo -n "Select Audio: "
             read audio_stream
-
-            video_stream=$( echo "$video_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
-            audio_stream=$( echo "$audio_stream" | sed -Ee 's/^\s*([0-9]+).*/\1/' )
+            local audio_stream=$( sed -Ee 's/^\s*([0-9]+).*/\1/' <<< "$audio_stream" )
+        else
+            local audio_stream=$( get_first_stream_id "Audio" "$streams" )
         fi
+    fi
 
-        # Detect subtitle streams
-        cur_vid_has_subtitles=true
+    # Detect subtitle streams
+    local cur_vid_has_subtitles=true
+    local subtitle_stream
+    local cur_vid_sub_streams=$( grep -E "Stream #.+Subtitle" <<< "$streams" )
 
-        if [[ -z "$( grep -E "Stream #.+Subtitle" <<< "$streams" )" ]]; then
-            cur_vid_has_subtitles=false
-        fi
+    if [[ -z "$cur_vid_sub_streams" ]]; then
+        local cur_vid_has_subtitles=false
+    fi
 
-        # If we're not automatically detecting streams prompt for the subtitle
-        # stream
-        if [[ $cur_vid_auto != true && ( $vid_burn_subs == null || $vid_burn_subs == true ) ]]; then
-            if [[ $cur_vid_has_subtitles == true ]]; then
-                # If it's not automatically detecting streams and we're going
-                # to burn subtitles, or we confirm the user wants to burn subtitles
-                # then we prompt for the subtitle stream
-                if [[ $auto != true ]] && ( [[ $vid_burn_subs == true ]] || confirm "Burn subtitles?" "n" ); then
-                    vid_burn_subs=true
+    # If we're not automatically detecting streams prompt for the subtitle
+    # stream
+    if [[ $cur_vid_auto != true && ( $vid_burn_subs == null || $vid_burn_subs == true ) ]]; then
+        if [[ $cur_vid_has_subtitles == true ]]; then
+            # If it's not automatically detecting streams and we're going
+            # to burn subtitles, or we confirm the user wants to burn subtitles
+            # then we prompt for the subtitle stream
+            if [[ $auto != true ]] && ( [[ $vid_burn_subs == true ]] || confirm "Burn subtitles?" "n" ); then
+                local vid_burn_subs=true
+
+                # If there's more than one subtitle stream then prompt
+                # for the specific one
+                if [[ $( wc -l <<< "$cur_vid_sub_streams" ) -gt 1 ]]; then
                     echo -n "Select Subtitle [default]: "
                     read subtitle_stream
-                    subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+                    local subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
                 fi
-            else
-                echo "No subtitles detected"
             fi
+        else
+            echo "No subtitles detected"
         fi
+    fi
 
-        # No matter the settings, disable burning subtitles for this
-        # video since it doesn't have any subtitles
-        if [[ $cur_vid_has_subtitles == false ]]; then
-            vid_burn_subs=false
-        # Otherwise if the user didn't select a subtitle stream determine
-        # the subtitle type and set the first subtitle stream as default
-        elif [[ -z $subtitle_stream_type ]]; then
-            # TODO: DRY
-            subtitle_stream=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
-            subtitle_stream_type=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+    # No matter the settings, disable burning subtitles for this
+    # video since it doesn't have any subtitles
+    if [[ $cur_vid_has_subtitles == false ]]; then
+        local vid_burn_subs=false
+    # Otherwise if the user didn't select a subtitle stream determine
+    # the subtitle type and set the first subtitle stream as default
+    elif [[ -z $subtitle_stream_type ]]; then
+        # TODO: DRY
+        local subtitle_stream=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
+        local subtitle_stream_type=$( grep -E 'Subtitle.+default' <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
 
-            # If the default subtitle wasn't detected then just use the first
-            # subtitle
-            if [[ -z $subtitle_stream_type ]]; then
-                subtitle_stream=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/' )
-                subtitle_stream_type=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+        # If the default subtitle wasn't detected then just use the first
+        # subtitle
+        if [[ -z $subtitle_stream_type ]]; then
+            local subtitle_stream=$( get_first_stream_id "Subtitle" "$streams" )
+            local subtitle_stream_type=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+        fi
+    fi
+
+    # Get the video stream height
+    local video_stream_height=$( sed -Ee '2,$d; s/^.+[0-9]+[xX]([0-9]+).+$/\1/' <<< "$vid_video_streams" )
+
+    # Find the relative subtitle stream number
+    local subtitle_stream_index=0
+
+    if [[ $cur_vid_has_subtitles == true ]]; then
+        IFS=$'\n'
+        for sstream in $( grep -F 'Stream #' <<< "$streams" | grep -F ': Subtitle' ); do
+            if grep -qF 'Stream #0:'"$subtitle_stream" <<< "$sstream"; then
+                break
             fi
-        fi
 
-        # Get the video stream height
-        video_stream_height=$( grep -E -m 1 'Stream.+Video:' <<< "$streams" | sed -E 's/^.+[0-9]+[xX]([0-9]+).+$/\1/' )
+            (( subtitle_stream_index++ ))
+        done
+    fi
 
-        # Find the relative stream number
-        subtitle_stream_index=0
-
-        if [[ $cur_vid_has_subtitles == true ]]; then
-            IFS=$'\n'
-            for sstream in $streams; do
-                if grep -qF 'Stream #0:'"$subtitle_stream" <<< "$streams"; then
-                    break
-                fi
-
-                (( subtitle_stream_index++ ))
-            done
-        fi
-
-        IFS=':'
-        # Save video details' struct
-        cur_vid_details=$(cat <<VID
+    IFS=':'
+    # Save video details' struct
+    local cur_vid_details=$(cat <<VID
 VIDEO:$video
 VIDEO_OUT:$vid_out
 VIDEO_HEIGHT:$video_stream_height
@@ -962,34 +1202,81 @@ BURNSUBS:$vid_burn_subs
 VID
 )
 
-        video_details+=("$cur_vid_details")
-        (( cur_video_index++ ))
-    done
+    echo -n "$cur_vid_details" > "$video_details_outfile"
 }
 
-# Required FFmpeg args
-ffmpeg_input_args=(
-    -hide_banner
-    -loglevel warning
-    -strict -2        # In case old version of FFmpeg to enable experimental AAC encoder
-)
+# Initially empty video details
+video_details=()
+video_count=0
+video_successful_count=0
+cur_video_index=0 # TODO: This variable is used across different functions, possibly problematic
+old_video_index=-1
 
-ffmpeg_output_args=(
-    -y                # Overwrite existing files without prompting, we check instead
-    -c:v libx264 
-    -preset faster 
-    -tune animation 
-    -trellis 2 
-    -subq 10 
-    -me_method umh 
-    -crf 26.5 
-    -profile:v high 
-    -level 4.1 
-    -pix_fmt yuv420p 
-    -c:a aac 
-    -b:a 192k
-    -movflags faststart # Web optimization
-)
+is_processing_videos=false
+processing_video_pid=0
+
+# Process all videos in the global $videos array and save the results to
+# $video_details
+process_videos() {
+    local is_watch_invocation=$1
+
+    # If the user send SIGINT then we'll know that we're processing videos
+    # from here
+    is_processing_videos=true
+
+    video_details=()
+    video_count=${#videos[@]}
+    echo "Found $video_count videos""$is_watch_invocation"
+    echo -e '\n\e[95m\e[1m'"➤ Processing videos..."'\e[0m'
+
+    echo -e '\n\e[92m\e[1m'"Note:\e[0m \e[37m""Press \e[1m""Ctrl-C\e[0m\e[37m to toggle the menu\e[0m"
+
+    # Gather preliminary information about the videos
+    for (( ; cur_video_index < ${#videos[@]}; cur_video_index++ )); do
+        video=${videos[$cur_video_index]}
+        vid_dir="$( dirname "$video" )"
+        vid_dir_print="$( dirname "$video" )/"
+        vid_file="$( basename "$video" )"
+        old_video_index_value=$old_video_index
+        old_video_index=-1
+        cur_video_processing_index=$cur_video_index
+
+        # Don't print dir if it's just './'
+        vid_dir_print=${vid_dir_print#./}
+        echo -e "\nProcessing [$(( cur_video_index + 1 ))/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
+
+        # Create tmp file to store the video details inside
+        local video_details_outfile=$tmp_encoder_tmpfile_dir/.batch-enc-vid-detail-$cur_video_index-$tmp_encoder_id
+        echo -n "" > "$video_details_outfile"
+        encoder_tmp_files+=("$video_details_outfile")
+        hide_tmp_file_windows "$video_details_outfile"
+
+        # Prompt "asynchronously" for the user details, using a disposable subshell
+        # for the ability to kill it and respawn another
+        process_videos_prompt "$video" "$vid_dir" "$vid_file" "$video_details_outfile" < /dev/stdin &
+        processing_video_pid=$!
+
+        wait $processing_video_pid
+
+        # Fetch the generated details
+        cur_vid_details=$(< "$video_details_outfile")
+
+        # Only add these new details if this current processing wasn't changed
+        [[ $cur_video_index = $cur_video_processing_index ]] && video_details[$cur_video_index]="$cur_vid_details"
+
+        # Remove the video detail tmp file
+        rm "$video_details_outfile"
+        unset encoder_tmp_files[-1]
+
+        # Check if this video was changed out of order
+        if (( old_video_index_value > -1 )); then
+            cur_video_index=$(( old_video_index_value - 1 ))
+        fi
+    done
+
+    # INT (ctrl-c) signals will now force quit batch encoder
+    is_processing_videos=false
+}
 
 # FFmpeg errors from most recent encoding
 ffmpeg_last_error_log=""
@@ -1007,6 +1294,12 @@ start_encoding() {
     cur_video_index=0
     for details in "${video_details[@]}"; do
         (( cur_video_index++ ))
+
+        # Check if this video was skipped
+        if [[ -z $details ]]; then
+            continue
+        fi
+
         video="$( get_detail "VIDEO" "$details" )"
         video_out="$( get_detail "VIDEO_OUT" "$details" )"
         video_height="$( get_detail "VIDEO_HEIGHT" "$details" )"
@@ -1084,6 +1377,10 @@ start_encoding() {
             else
                 echo "Error: Subtitle type '$subtitle_stream_type' not supported"
             fi
+        else
+            # This video won't burn any subs so make sure to
+            # -map the video source
+            vid_output_args+=(-map 0:$video_stream)
         fi
 
         # Choose different audio stream
@@ -1127,11 +1424,20 @@ start_encoding() {
         IFS=","
         local filter_complex_args="${vid_filter_args[*]}"
         if [[ -n $vid_filter_second_filtergraph_args ]]; then
+            # Prepend comma to `filter_complex_args` if any
+            if [[ -n $filter_complex_args ]]; then
+                local filter_complex_args=','$filter_complex_args
+            fi
+
             # Put VOBSub filter at the beginning
-            local filter_complex_args="$vid_filter_second_filtergraph_args,$filter_complex_args[v]"
+            local filter_complex_args="${vid_filter_second_filtergraph_args}${filter_complex_args}[v]"
         fi
 
-        vid_output_args+=(-filter_complex "$filter_complex_args")
+        # If either watermark or subs will be burned then provide
+        # -filter_complex, otherwise omit it
+        if [[ -n "$( tr -d '[:blank:]' <<< "$filter_complex_args" )" ]]; then
+            vid_output_args+=(-filter_complex "$filter_complex_args")
+        fi
 
         # Print progress to stdout
         vid_output_args+=(-progress pipe:1)
