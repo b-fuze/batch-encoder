@@ -423,7 +423,7 @@ OPTIONS" | sed -Ee '1d'
     usage_section basic "
     -r, --resolution RES
         RES can be one of $( b 240 ), $( b 360 ), $( b 480 ), $( b 640 ), $( b 720 ),
-        $( b 1080 ), or $( b original ). Original by default.
+        $( b 1080 ), $( b 2160 ), or $( b original ). Original by default.
 
     -a, --auto, --no-auto
         Automatically determine appropriate audio
@@ -788,8 +788,8 @@ fi
 
 # Validate resolution variable
 case $res in 
-    240* | 360* | 480* | 720* | 1080* )
-        res=$( echo "$res" | grep -oE '^(240|360|480|720|1080)' )
+    240* | 360* | 480* | 720* | 1080* | 2160* )
+        res=$( echo "$res" | grep -oE '^(240|360|480|720|1080|2160)' )
         ;;
     original | prompt )
         :
