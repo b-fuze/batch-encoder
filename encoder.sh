@@ -1185,6 +1185,15 @@ process_videos_prompt() {
         done
     fi
 
+    # Get current audio stream and check its codec to determine if it will use AAC passthrough
+    local current_audio_stream=$( [[ -z $audio_stream ]] && get_first_stream_id "Audio" "$streams" || echo "$audio_stream" )
+    local audio_stream_codec=$( grep -E 'Stream #0:'$current_audio_stream'[^0-9]' <<< "$streams" | awk '{ print $4 }' )
+    local audio_aac_passthrough=false
+
+    if [[ $audio_stream_codec = aac ]]; then
+        audio_aac_passthrough=true
+    fi
+
     IFS=':'
     # Save video details' struct
     local cur_vid_details=$(cat <<VID
@@ -1194,6 +1203,7 @@ VIDEO_HEIGHT:$video_stream_height
 AUTO:$cur_vid_auto
 VSTREAM:$video_stream
 ASTREAM:$audio_stream
+ASTREAM_PASSTHROUGH:$audio_aac_passthrough
 SSTREAM:$subtitle_stream
 SSTREAM_INDEX:$subtitle_stream_index
 SSTREAM_TYPE:$subtitle_stream_type
@@ -1306,6 +1316,7 @@ start_encoding() {
         vid_auto="$( get_detail "AUTO" "$details" )"
         video_stream="$( get_detail "VSTREAM" "$details" )"
         audio_stream="$( get_detail "ASTREAM" "$details" )"
+        audio_stream_passthrough="$( get_detail "ASTREAM_PASSTHROUGH" "$details" )"
         subtitle_stream="$( get_detail "SSTREAM" "$details" )"
         subtitle_stream_index="$( get_detail "SSTREAM_INDEX" "$details" )"
         subtitle_stream_type="$( get_detail "SSTREAM_TYPE" "$details" )"
@@ -1389,6 +1400,11 @@ start_encoding() {
         else
             # Use first audio stream as default
             vid_output_args+=(-map 0:a:0)
+        fi
+
+        # Check if using AAC passthrough
+        if [[ $audio_stream_passthrough = true ]]; then
+            vid_output_args+=(-c:a copy)
         fi
 
         # Set framerate
