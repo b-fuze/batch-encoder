@@ -568,17 +568,20 @@ ffmpeg_output_args=(
     -y                # Overwrite existing files without prompting, we check instead
     -c:v libx264 
     -preset faster 
-    -tune animation 
+    -tune ssim 
     -trellis 2 
     -subq 10 
     -me_method umh 
-    -crf 26.5 
+    -crf 19
+    -vsync 2 
     -profile:v high 
-    -level 4.1 
+    -level 3.1
+    -b_strategy 1
+    -bf 16
     -pix_fmt yuv420p 
     -c:a aac 
-    -b:a 192k
-    -movflags faststart # Web optimization
+    -b:a 160k
+    -movflags +faststart # Web optimization
 )
 
 # Check for and load config
