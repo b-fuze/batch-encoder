@@ -220,6 +220,33 @@ print_config() {
     echo
 }
 
+# Print CLI args used
+print_ffmpeg_args() {
+  local ffmpeg_cmd=$1
+  shift
+  local args=("$@")
+
+  echo -en '\e[90m'
+  echo -n "$ffmpeg_cmd"
+  echo -en '\e[0m '
+
+  local next_arg=
+  for arg in "${args[@]}"; do
+    echo -n "$next_arg"
+
+    if [[ ${arg:0:1} = - ]]; then
+      next_arg=$'\e[35m'"$arg"$'\e[0m'
+    else
+      next_arg=\'"$arg"\'
+    fi
+
+    next_arg+=' '
+  done
+
+  next_arg=${next_arg% }
+  echo "$next_arg"
+}
+
 # Human readable duration
 human_duration() {
     local seconds="$1"
@@ -492,6 +519,9 @@ OPTIONS" | sed -Ee '1d'
         DURATION is omitted it defaults to 5
         seconds.
 
+    --debug-ffmpeg-args
+        Display the FFmpeg command used
+
     --debug-ffmpeg-errors
         Display FFmpeg error log even after successful
         encodes.
@@ -545,6 +575,7 @@ defaults[framerate]=original           # Framerate
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
 defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
+defaults[debug_ffmpeg_args]=false      # Print FFmpeg cli args
 defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
 defaults[help_section]=""              # Help section to choose from: basic, advanced, debug, all
@@ -710,6 +741,9 @@ while true; do
                     --debug-ffmpeg-errors )
                         defaults[debug_ffmpeg_errors]=true
                         ;;
+                    --debug-ffmpeg-args )
+                        defaults[debug_ffmpeg_args]=true
+                        ;;
                     --debug-config )
                         print_config
                         exit 0
@@ -781,6 +815,7 @@ framerate="${defaults[framerate]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
 debug_ffmpeg_errors="${defaults[debug_ffmpeg_errors]}"
+debug_ffmpeg_args="${defaults[debug_ffmpeg_args]}"
 fatal="${defaults[fatal]}"
 verbose_streams="${defaults[verbose_streams]}"
 
@@ -1461,15 +1496,22 @@ start_encoding() {
         # Print progress to stdout
         vid_output_args+=(-progress pipe:1)
 
+        # Create output file to avoid `wslpath` complaining it doesn't exist
+        touch "$vid_abs_out"
+
+        # Create FULL ffmpeg cli and args
+        vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$src_dir/$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
+
+        # Debug ffmpeg cli args
+        if [[ $debug_ffmpeg_args = true ]]; then
+          print_ffmpeg_args "${vid_full_cmd[@]}"
+        fi
+
         # Record start time and end time
         vid_enc_start_time=$( date +%s )
         echo -e "\e[90m[\e[36mstart\e[90m $( date +%X )]\e[0m"
 
-        # Create output file to avoid `wslpath` complaining it doesn't exist
-        touch "$vid_abs_out"
-
         # Finally, run FFmpeg
-        vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$src_dir/$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
         run_ffmpeg "$details" "${vid_full_cmd[@]}"
         encode_success=$?
 
