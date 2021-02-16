@@ -1223,6 +1223,9 @@ process_videos_prompt() {
         done
     fi
 
+    # Set video stream if it's empty (from --auto)
+    [[ -z $video_stream ]] && local video_stream=$( get_first_stream_id "Video" "$streams" )
+
     # Get current audio stream and check its codec to determine if it will use AAC passthrough
     local current_audio_stream=$( [[ -z $audio_stream ]] && get_first_stream_id "Audio" "$streams" || echo "$audio_stream" )
     local audio_stream_codec=$( grep -E 'Stream #0:'$current_audio_stream'[^0-9]' <<< "$streams" | awk '{ print $4 }' )
