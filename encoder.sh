@@ -1101,8 +1101,9 @@ process_videos_prompt() {
     # Duration line is independent of streams
     local vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
 
-    # Get all video streams' (estimated) frame counts
-    local vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" )"
+    # Get all video streams' (estimated) frame counts. Exclude video streams
+    # that are just attached pictures
+    local vid_video_streams="$( echo "$streams" | grep 'Stream #0' | grep " Video" | grep -v "attached pic" )"
     local cur_vid_vid_streams=()
 
     # Loop all possible video streams
