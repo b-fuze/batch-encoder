@@ -605,11 +605,11 @@ ffmpeg_output_args=(
     -me_method umh 
     -crf 19
     -vsync 2 
-    -profile:v high 
-    -level 3.1
+    -profile:v high10 
+    -level 4.1
     -b_strategy 1
     -bf 16
-    -pix_fmt yuv420p 
+    -pix_fmt yuv420p10le 
     -c:a aac 
     -b:a 160k
     -movflags +faststart # Web optimization
