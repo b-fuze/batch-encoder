@@ -434,7 +434,7 @@ USAGE
     encoder.sh -h | --help
 
 DESCRIPTION
-    Encode all MKV and AVI videos in the current
+    Encode all MKV and AVI and MP4 videos in the current
     directory (or subdirectories) to MP4 videos.
     Options are either set via optional arguments
     listed below or interactive prompts in the
@@ -1061,7 +1061,7 @@ find_source_videos() {
 
         for file in $curdir_files; do
             if [[ -d "$src_dir/$file" ]]; then
-                curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi} 2> /dev/null )"
+                curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi,mp4} 2> /dev/null )"
                 for video in $curdir_videos; do
                     videos+=("$file/$video")
                 done
@@ -1069,7 +1069,7 @@ find_source_videos() {
         done
     else
         [[ -z $quiet ]] && echo -en "\nSearching current directory for video sources... "
-        curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi} 2> /dev/null )"
+        curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi,mp4} 2> /dev/null )"
 
         for video in $curdir_videos; do
             videos+=("$video")
@@ -1692,7 +1692,7 @@ if [[ $watch == true ]]; then
                 event_target=${event#* }
                 event_type=$( grep -Eo '^[^ ]+' <<< "$event" )
 
-                if [[ $event_target =~ .+\.(mkv|avi)$ ]]; then
+                if [[ $event_target =~ .+\.(mkv|avi|mp4)$ ]]; then
                     if [[ $watch_validate == true ]]; then
                         cur_video_abs_path="$( readlink -f "$event_target" )"
 
