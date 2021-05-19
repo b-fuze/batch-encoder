@@ -29,9 +29,9 @@ Style: fading watermark,Coolvetica Rg,53,&H00FFFFFF,&H000000FF,&H00000000,&H0000
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:05.00,9:59:59.99,Default,,0,0,0,,{\pos(1828,1041.111)}{\fad(2000,0)}{\fsp-3}{\alpha&HBB&\b0\fnArial\fs38}anime{\b1}ultima
 Dialogue: 0,0:00:05.00,9:59:59.99,small,,0,0,0,,{\pos(1828,1063.333)}{\fad(2000,0)}{\fsp-2}{\alpha&HBB&\fnArial\fs20}www.animeultima.to
-Dialogue: 0,0:07:02.00,0:07:06.00,fading watermark,,0,0,0,,{\fad(1000,1000)\pos(1048,21)}Join our official Discord:{\c&H3333FF&\fs49.5\b0} https://discord.gg/QT3nfqvB7X
+Dialogue: 0,0:07:02.00,0:07:06.00,fading watermark,,0,0,0,,{\fad(1000,1000)\pos(1048,21)}Join our official Discord:{\c&H3333FF&\fs49.5\b0} https://discord.gg/Am89tCjYkY
 Dialogue: 0,0:07:06.00,0:07:10.00,fading watermark,,0,0,0,,{\fad(1000,1000)\pos(1048,21)}Watch more free anime at www.anime{\c&H3333FF&\fs49.5\b0}ultima{{\c&HF5F5F5&}.to
 Dialogue: 0,0:07:10.00,0:07:14.00,Donate,,0,0,0,,{\fad(1000,1000)\pos(1042,66)}Help keep AnimeUltima alive by donating via patreon!\N\N{\b1}ANIMEULTIMA.TO/PREMIUM{\b0}
-Dialogue: 0,0:15:02.00,0:15:06.00,fading watermark,,0,0,0,,{\fad(1000,1000)\pos(1048,21)}Join our official Discord:{\c&H3333FF&\fs49.5\b0} https://discord.gg/QT3nfqvB7X
+Dialogue: 0,0:15:02.00,0:15:06.00,fading watermark,,0,0,0,,{\fad(1000,1000)\pos(1048,21)}Join our official Discord:{\c&H3333FF&\fs49.5\b0} https://discord.gg/Am89tCjYkY
 Dialogue: 0,0:15:06.00,0:15:10.00,fading watermark,,0,0,0,,{\fad(1000,1000)\pos(1048,21)}Watch more free anime at www.anime{\c&H3333FF&\fs49.5\b0}ultima{{\c&HF5F5F5&}.to
 Dialogue: 0,0:15:10.00,0:15:14.00,Donate,,0,0,0,,{\fad(1000,1000)\pos(1042,66)}Help keep AnimeUltima alive by donating via patreon!\N\N{\b1}ANIMEULTIMA.TO/PREMIUM{\b0}

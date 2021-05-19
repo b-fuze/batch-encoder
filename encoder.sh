@@ -434,7 +434,7 @@ USAGE
     encoder.sh -h | --help
 
 DESCRIPTION
-    Encode all MKV and AVI videos in the current
+    Encode all MKV and AVI and MP4 videos in the current
     directory (or subdirectories) to MP4 videos.
     Options are either set via optional arguments
     listed below or interactive prompts in the
@@ -598,20 +598,30 @@ ffmpeg_input_args=(
 ffmpeg_output_args=(
     -y                # Overwrite existing files without prompting, we check instead
     -c:v libx264 
-    -preset faster 
-    -tune ssim 
+    -r 24000/1001
+    -preset veryslow 
+    -tune ssim,fastdecode,zerolatency 
     -trellis 2 
-    -subq 10 
+    -subq 11 
     -me_method umh 
     -crf 19
     -vsync 2 
+    -g 30
+    -x264-params deblock=1,1:cabac:open-gop:bframes=8:b-adapt=2:weightb:weightp=2:ref=16:scenecut=40:tff:intra-refresh:constrained-intra:ipratio=1.4:pbratio=1.3:qcomp=0.60:rc-lookahead=60:mbtree:aq-mode=1:aq-strength=1:chroma-me:merange=24:me=umh:subme=11:direct=auto:trellis=2:psy-rd=1.50,0.60:no-psy:dct-decimate:no-fast-pskip:mixed-refs:partitions=all:ssim:sliced-threads:force-cfr
     -profile:v high 
-    -level 3.1
+    -level 4.1
     -b_strategy 1
     -bf 16
-    -pix_fmt yuv420p 
+    -color_primaries bt709
+    -color_trc bt709
+    -colorspace bt709
+    -pix_fmt yuv420p
     -c:a aac 
-    -b:a 160k
+    -ac 2
+    -b:a 192k
+    -sn 
+    -map_metadata -1 
+    -map_chapters -1 
     -movflags +faststart # Web optimization
 )
 
@@ -1051,7 +1061,7 @@ find_source_videos() {
 
         for file in $curdir_files; do
             if [[ -d "$src_dir/$file" ]]; then
-                curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi} 2> /dev/null )"
+                curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi,mp4} 2> /dev/null )"
                 for video in $curdir_videos; do
                     videos+=("$file/$video")
                 done
@@ -1059,7 +1069,7 @@ find_source_videos() {
         done
     else
         [[ -z $quiet ]] && echo -en "\nSearching current directory for video sources... "
-        curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi} 2> /dev/null )"
+        curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi,mp4} 2> /dev/null )"
 
         for video in $curdir_videos; do
             videos+=("$video")
@@ -1682,7 +1692,7 @@ if [[ $watch == true ]]; then
                 event_target=${event#* }
                 event_type=$( grep -Eo '^[^ ]+' <<< "$event" )
 
-                if [[ $event_target =~ .+\.(mkv|avi)$ ]]; then
+                if [[ $event_target =~ .+\.(mkv|avi|mp4)$ ]]; then
                     if [[ $watch_validate == true ]]; then
                         cur_video_abs_path="$( readlink -f "$event_target" )"
 
