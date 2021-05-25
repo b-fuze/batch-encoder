@@ -607,7 +607,7 @@ ffmpeg_output_args=(
     -crf 19
     -vsync 2 
     -g 30
-    -x264-params deblock=1,1:cabac:open-gop:bframes=8:b-adapt=2:weightb:weightp=2:ref=16:scenecut=40:tff:intra-refresh:constrained-intra:ipratio=1.4:pbratio=1.3:qcomp=0.60:rc-lookahead=60:mbtree:aq-mode=1:aq-strength=1:chroma-me:merange=24:me=umh:subme=11:direct=auto:trellis=2:psy-rd=1.50,0.60:no-psy:dct-decimate:no-fast-pskip:mixed-refs:partitions=all:ssim:sliced-threads:force-cfr
+    -x264-params ref=6:deblock=1,1:bframes=8:psy-rd=1.5:aq-mode=3:aq-strength=1:psy-rd=1.50,0.60
     -profile:v high 
     -level 4.1
     -b_strategy 1
