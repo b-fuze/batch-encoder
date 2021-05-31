@@ -451,6 +451,22 @@ run_ffmpeg() {
     return $ffmpeg_status
 }
 
+# Utility for checking and adding either source
+# video files or directories
+add_source() {
+    local source=$1
+
+    if [[ -e $source ]]; then
+        if [[ -f $source ]]; then
+            vid_sources+=("$source")
+        elif [[ -d $source ]]; then
+            dir_sources+=("$source")
+        fi
+    else
+        echo "Error: '$source': no such file or directory" 1>&2
+    fi
+}
+
 # Main script logic
 usage_section() {
     local section=$1
@@ -522,8 +538,9 @@ OPTIONS" | sed -Ee '1d'
 "
     usage_section basic "
     -s, --source DIR
-        Source directory for encodes. Defaults to
-        current directory.
+        Source file or directory to encode. Can be
+        used multiple times. Defaults to current
+        directory if omitted.
 
     -d, --destination DIR
         Destination directory for all encodes.
@@ -611,16 +628,19 @@ OPTIONS" | sed -Ee '1d'
 }
 
 # Data dir with watermark (same as script folder)
-data_dir="$(dirname $(realpath "${BASH_SOURCE[0]}"))"
+data_dir="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
 
 # Some defaults
 declare -A defaults
 declare -A arg_mapping
 
+# Arrays of sources to encode
+vid_sources=()
+dir_sources=()
+
 defaults[res]=prompt                   # Default resolution (same as source)
 defaults[auto]=null                    # Automatically determine streams
-defaults[src_dir]=.                    # Source directory
-defaults[out_dir]=null                 # Output directory
+defaults[out_dir]=""                   # Output directory
 defaults[recursive]=null               # Recursively encode subdirs
 defaults[out_suffix]=false             # Append a suffix to output filename
 defaults[out_suffix_name]=""           # Output filename suffix
@@ -711,7 +731,12 @@ while true; do
                 continue
             fi
 
-            defaults[$consume_next_arg]="$cur_arg"
+            # Special handling for --source/-s values.
+            if [[ $consume_next_arg = source ]]; then
+                add_source "$cur_arg"
+            else
+                defaults[$consume_next_arg]="$cur_arg"
+            fi
 
             consume_next=false
             consume_optional=false
@@ -784,7 +809,7 @@ while true; do
                     --source )
                         # Directory is supplied as next arg
                         consume_next=true
-                        consume_next_arg=src_dir
+                        consume_next_arg=source
                         ;;
                     --recursive )
                         defaults[recursive]=true
@@ -917,7 +942,6 @@ fi
 res="${defaults[res]}"
 auto="${defaults[auto]}"
 out_dir="${defaults[out_dir]}"
-src_dir="${defaults[src_dir]}"
 recursive="${defaults[recursive]}"
 force="${defaults[force]}"
 out_suffix="${defaults[out_suffix]}"
@@ -940,9 +964,10 @@ debug_ffmpeg_args="${defaults[debug_ffmpeg_args]}"
 fatal="${defaults[fatal]}"
 verbose_streams="${defaults[verbose_streams]}"
 
-# Default output dir to src dir
-if [[ $out_dir == null ]]; then
-    out_dir="$src_dir"
+# Encode videos in current directory by default if
+# no other sources are provided
+if [[ ${#vid_sources[@]} -eq 0 && ${#dir_sources[@]} -eq 0 ]]; then
+    dir_sources=("$PWD")
 fi
 
 # Validate resolution variable
@@ -1003,7 +1028,18 @@ if [[ $IS_WINDOWS == true ]]; then
     fi
 
     # Convert any windows provided paths to Linux
-    src_dir=$( check_windows_path "$src_dir" )
+    new_vid_sources=()
+    new_dir_sources=()
+
+    for vid in "${vid_sources[@]}"; do
+        new_vid_sources+=("$( check_windows_path "$vid" )")
+    done
+    for dir in "${dir_sources[@]}"; do
+        new_dir_sources+=("$( check_windows_path "$dir" )")
+    done
+
+    vid_sources=("${new_vid_sources[@]}")
+    dir_sources=("${new_dir_sources[@]}")
     out_dir=$( check_windows_path "$out_dir" )
 
     # Check for `attrib.exe` Windows executable so we can hide
@@ -1053,7 +1089,7 @@ fi
 
 # Create temporary metadata files
 tmp_encoder_id=$( date +%s%N | sha1sum ); tmp_encoder_id=${tmp_encoder_id:0:16}
-tmp_encoder_tmpfile_dir=$( readlink -f "$out_dir" )
+tmp_encoder_tmpfile_dir=$( readlink -f "${out_dir:-.}" )
 tmp_vid_enc_list=$tmp_encoder_tmpfile_dir/.batch-enc-list-$tmp_encoder_id
 tmp_vid_enc_watch_list=$tmp_encoder_tmpfile_dir/.batch-enc-watch-list-$tmp_encoder_id
 tmp_vid_enc_watch_sync=$tmp_encoder_tmpfile_dir/.batch-enc-watch-lock-$tmp_encoder_id
@@ -1162,30 +1198,82 @@ videos=()
 # array with them
 find_source_videos() {
     local quiet="$1"
+    local -A out_videos=()
     videos=()
     IFS=$'\n'
     shopt -s nocaseglob
 
+    # Add videos from $dir_sources
     if [[ $recursive == true ]]; then
-        [[ -z $quiet ]] && echo -en "\nSearching recursively for video sources... "
-        curdir_files="$( cd "$src_dir"; ls -1 )"
-
-        for file in $curdir_files; do
-            if [[ -d "$src_dir/$file" ]]; then
-                curdir_videos="$( cd "$src_dir/$file"; ls -1 *.{mkv,avi,mp4} 2> /dev/null )"
-                for video in $curdir_videos; do
-                    videos+=("$file/$video")
-                done
-            fi
+        [[ -z $quiet ]] && echo -en '\n'"Searching recursively for video sources... "
+        # TODO: Make the recursive match not stupid and repetitive
+        for dir in "${dir_sources[@]}"; do
+            for file in "$dir"/*; do
+                if [[ -d $file ]]; then
+                    for inner_file in "$file"/*; do
+                        if [[ -f $inner_file ]]; then
+                            # Check lower-case'd filename match the correct
+                            # filename extension
+                            if [[ ${inner_file,,*} =~ \.(mkv|avi|mp4)$ ]]; then
+                                videos+=("$inner_file")
+                            fi
+                        fi
+                    done
+                else
+                    # Check lower-case'd filename match the correct
+                    # filename extension
+                    if [[ ${file,,*} =~ \.(mkv|avi|mp4)$ ]]; then
+                        videos+=("$file")
+                    fi
+                fi
+            done
         done
     else
-        [[ -z $quiet ]] && echo -en "\nSearching current directory for video sources... "
-        curdir_videos="$( cd "$src_dir"; ls -1 *.{mkv,avi,mp4} 2> /dev/null )"
+        [[ -z $quiet ]] && echo -en '\n'"Searching source directories for video sources... "
 
-        for video in $curdir_videos; do
-            videos+=("$video")
+        for dir in "${dir_sources[@]}"; do
+            for file in "$dir"/*; do
+                if [[ -f $file ]]; then
+                    # Check lower-case'd filename match the correct
+                    # filename extension
+                    if [[ ${file,,*} =~ \.(mkv|avi|mp4)$ ]]; then
+                        videos+=("$file")
+                    fi
+                fi
+            done
         done
     fi
+
+    # Add videos from $vid_sources
+    videos+=("${vid_sources[@]}")
+
+    # Find all conflicts between input *.mp4 files and
+    # output *.mp4 that are in the same dir and resolve
+    # them by removing them from the $video array which
+    # lists videos that will be encoded
+    local -A initial_conflict=()
+
+    # Build a list of output videos
+    for video in "${videos[@]}"; do
+        local out_video=${video%.*}$out_suffix_name.mp4
+
+        if [[ -z ${out_videos[$out_video]} ]]; then
+            out_videos[$out_video]=1
+        else
+            initial_conflict[$video]=1
+        fi
+    done
+
+    # Filter all conflicting output videos from input videos
+    local new_videos=()
+    for video in "${videos[@]}"; do
+        if [[ -z ${out_videos[$video]} && -z ${initial_conflict[$video]} ]]; then
+            new_videos+=("$video")
+        fi
+    done
+
+    # Update list with conflict-free videos
+    videos=("${new_videos[@]}")
 
     # Exit if no videos found
     if [[ ${#videos[@]} == 0 ]] && [[ $watch == false ]]; then
@@ -1217,7 +1305,7 @@ process_videos_prompt() {
     fi
 
     # Get list of all streams
-    local streams=$( "$ffprobe_executable" "$( path "$src_dir/$video" )" 2>&1 )
+    local streams=$( "$ffprobe_executable" "$( path "$video" )" 2>&1 )
 
     # Duration line is independent of streams
     local vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
@@ -1408,14 +1496,19 @@ process_videos() {
     for (( ; cur_video_index < ${#videos[@]}; cur_video_index++ )); do
         video=${videos[$cur_video_index]}
         vid_dir="$( dirname "$video" )"
-        vid_dir_print="$( dirname "$video" )/"
+        vid_dir_print="$( dirname "$video" )"
         vid_file="$( basename "$video" )"
         old_video_index_value=$old_video_index
         old_video_index=-1
         cur_video_processing_index=$cur_video_index
 
-        # Don't print dir if it's just './'
-        vid_dir_print=${vid_dir_print#./}
+        # Don't print dir name if it's the current dir
+        if [[ "$( readlink -f "$vid_dir_print" )" = "$( readlink -f . )" ]]; then
+            vid_dir_print=
+        else
+            vid_dir_print=$( basename "$vid_dir_print" )/
+        fi
+
         echo -e "\nProcessing [$(( cur_video_index + 1 ))/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
 
         # Create tmp file to store the video details inside
@@ -1459,7 +1552,7 @@ if [[ $debug_run == true ]]; then
     ffmpeg_output_args+=(-t $debug_run_dur)
 fi
 
-# Start encoding videos in the $video_details array containing information 
+# Start encoding videos in the $video_details array containing information
 # gathered from processing step
 start_encoding() {
     echo -e '\n\e[95m\e[1m'"➤ Encoding videos..."'\e[0m'
@@ -1486,7 +1579,17 @@ start_encoding() {
         vid_burn_subs="$( get_detail "BURNSUBS" "$details" )"
         vid_res=$res
 
-        vid_abs_out="$out_dir/$video_out"
+        if [[ -n $out_dir ]]; then
+            # Store videos in $out_dir
+            vid_abs_out="$out_dir/$( basename "$( dirname "$video_out" )" )/$( basename "$video_out" )"
+        else
+            # Store videos in their current directories
+            if [[ ${video_out:0:1} = / ]]; then
+                vid_abs_out=$video_out
+            else
+                vid_abs_out=$PWD/$video_out
+            fi
+        fi
         vid_abs_out_dir="$( dirname "$vid_abs_out" )"
 
         # Initialize video filters with watermark (if it exists)
@@ -1504,9 +1607,13 @@ start_encoding() {
 
         # Major video path components split for formatting purposes
         # Don't print dir if it's just './'
-        vid_dir="$( dirname "$video" )/"
-        vid_dir=${vid_dir#./}
+        vid_dir_print="$( basename "$( dirname "$video" )" )/"
         vid_file="$( basename "$video" )"
+
+        # Don't print dir name if it's the current dir
+        if [[ "$( readlink -f "$( dirname "$video" )" )" = "$( readlink -f . )" ]]; then
+            vid_dir_print=
+        fi
 
         vid_out_dir="$( dirname "$video_out" )/"
         vid_out_dir=${vid_out_dir#./}
@@ -1514,7 +1621,7 @@ start_encoding() {
 
         # Skip video if it exists and force(fully overwriting) isn't enabled
         if [[ $force != true ]] && [[ -f "$vid_abs_out" ]]; then
-            echo -e "\nSkipping [$cur_video_index/$video_count] \e[32m$vid_dir\e[92m$vid_file\e[0m..."
+            echo -e '\n'"Skipping [$cur_video_index/$video_count] \e[32m$vid_dir_print\e[92m$vid_file\e[0m..."
             continue
         fi
 
@@ -1527,7 +1634,7 @@ start_encoding() {
                 # Ref: https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping
                 #
                 # Monstrosity of escaping inbound...
-                local vid_subtitle_filter_arg="subtitles=$( path "$src_dir/$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )"
+                local vid_subtitle_filter_arg="subtitles=$( path "$video" | sed -Ee 's/([][,=])/\\\1/g' -e 's/('\'')/\\\\\\''\1/g' -Ee 's/(:)/\\\\''\1/g' )"
 
                 # If a specific subtitle stream was selected by the user then
                 # forward that to FFmpeg
@@ -1587,8 +1694,8 @@ start_encoding() {
         fi
 
         # Everything checks out, time to start encoding
-        echo -e "\nEncoding [$cur_video_index/$video_count] \e[32m$vid_out_dir\e[92m$vid_out_file\e[0m"
-        echo -e   "    from \e[90m$vid_dir$vid_file\e[0m"
+        echo -e "\nEncoding [$cur_video_index/$video_count] \e[32m$vid_dir_print\e[92m$vid_out_file\e[0m"
+        echo -e   "    from \e[90m$vid_dir_print$vid_file\e[0m"
 
         # Check if video resolution is specified by user or automatic
         [[ $vid_res == prompt ]] && vid_res=original
@@ -1625,7 +1732,7 @@ start_encoding() {
         touch "$vid_abs_out"
 
         # Create FULL ffmpeg cli and args
-        vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$src_dir/$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
+        vid_full_cmd=("$ffmpeg_executable" "${ffmpeg_input_args[@]}" -i "$( path "$video" )" "${vid_output_args[@]}" "${ffmpeg_size[@]}" "$( path "$vid_abs_out" )")
 
         # Debug ffmpeg cli args
         if [[ $debug_ffmpeg_args = true ]]; then
@@ -1647,8 +1754,8 @@ start_encoding() {
         if [[ $encode_success == 0 ]]; then
             # Remove original video after encoding
             if [[ $clean == true ]]; then
-                echo "Deleting original video '$src_dir/$video'..."
-                rm "$src_dir/$video"
+                echo "Deleting original video '$video'..."
+                rm "$video"
             fi
 
             # Print FFmpeg errors even though it didn't fail
@@ -1728,13 +1835,6 @@ if [[ $watch == true ]]; then
         be_exit 1
     fi
 
-    # Prevent watching on the '/' root directory, this restriction could be lifted
-    # later. However, there's no reason to allow it now.
-    if [[ $( readlink -f "$src_dir" ) == "/" ]]; then
-        echo -e '\n'"Error: Can't watch on the root directory '/'"
-        be_exit 1
-    fi
-
     # Get initial $videos
     find_source_videos
     processed_initial_videos=false
@@ -1760,7 +1860,7 @@ if [[ $watch == true ]]; then
     # TODO: Phase out inotify in favor of polling on
     # platforms like WSL. It only serves as additional
     # overhead on those platforms with little or no gain.
-    ( inotifywait -mr --format '%e %w%f' "${inotify_event_args[@]}" "$src_dir" 2> /dev/null |
+    ( inotifywait -mr --format '%e %w%f' "${inotify_event_args[@]}" "${dir_sources[@]}" 2> /dev/null |
         while read "${inotify_read_args[@]}" event || true; do
             if [[ $watch_rescan == true ]]; then
                 # Debounce
