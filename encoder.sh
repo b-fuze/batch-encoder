@@ -273,7 +273,10 @@ print_ffmpeg_args() {
     if [[ ${arg:0:1} = - ]]; then
         next_arg=$'\e[35m'"$arg"$'\e[0m'
     else
-      next_arg=\'"$arg"\'
+        # Print $arg with any single quotes
+        # escaped to allow easy copy pasting
+        # reproducible FFmpeg commands
+        next_arg=\'"${arg//\'/\'\\\'\'}"\'
     fi
 
     next_arg+=' '
