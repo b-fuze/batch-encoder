@@ -314,7 +314,7 @@ human_duration() {
 get_first_stream_id() {
     local type=$1
     local streams=$2
-    grep -E "$type" -m 1 <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/'
+    grep -E "^ +Stream.+$type" -m 1 <<< "$streams" | sed -Ee 's/^.+Stream #0:([0-9]+).*$/\1/'
 }
 
 # Get video stream frame count
