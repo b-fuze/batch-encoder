@@ -112,6 +112,41 @@ hide_tmp_file_windows() {
     fi
 }
 
+# Update encoder
+update_encoder() {
+    if ! which git &> /dev/null; then
+        echo "Error: can't update without $( b git ). Install $( b git ) and try again" 1>&2
+        return 1
+    fi
+
+    cd "$data_dir"
+    if git rev-parse HEAD &> /dev/null; then
+        local branch=$( git branch --show-current )
+        local remote_name=$( git remote | head -n1 )
+        local cur_commit=$( git rev-parse --short HEAD )
+
+        echo -n "Loading latest version information..."
+
+        git fetch "$remote_name" "$branch" -q
+        local new_commit=$( git rev-parse --short "$remote_name/$branch" )
+
+        # Clear line
+        echo -ne '\e[?25h\e[2K\r'
+
+        if [[ $cur_commit = $new_commit ]]; then
+            echo "Already up to date"
+            echo "Version $( b "$BATCH_ENCODER_VERSION" )-$cur_commit"
+        else
+            git checkout HEAD . -q
+            local new_version=$( grep BATCH_ENCODER_VERSION -m 1 encoder.sh | sed -E 's/^.+=(.+)$/\1/' )
+            echo "Updated to latest version"
+            echo "Version $( b "$BATCH_ENCODER_VERSION" )-$cur_commit $( b $'\e[32m''->' ) $( b "$new_version" )-$new_commit"
+        fi
+    else
+        echo "Error: can't update, not installed with Git" 1>&2
+    fi
+}
+
 # Check for and load config
 load_config() {
     local config=~/.config/batch-encoder-cfg.sh
@@ -431,6 +466,7 @@ USAGE
                [--burn-subs] [--watermark FILE] [--clean] [--force]
                [-w] [--watch-rescan] [--verbose-streams] [--fatal]
                [--debug-run [DUR]] [--version]
+    encoder.sh update
     encoder.sh -h | --help
 
 DESCRIPTION
@@ -541,6 +577,9 @@ OPTIONS" | sed -Ee '1d'
     echo -n "
     --version
         Print version.
+
+    update
+        Update encoder.sh to its latest version.
 
     -h, --help
         Show simplfied help.
@@ -787,6 +826,11 @@ while true; do
                     # Sub/dub
                     dub )
                         defaults[locale]=dub
+                        ;;
+                    # Updates and versioning
+                    update )
+                        update_encoder
+                        exit $?
                         ;;
                     * )
                         : # Nothing to do NOTE: Likely pointless
