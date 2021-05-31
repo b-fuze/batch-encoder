@@ -658,7 +658,7 @@ defaults[clean]=false                  # Removes original video after encoding
 defaults[burn_subs]=null               # Burns subtitles into videos
 defaults[recolor_subs]=false           # Recolor subtitles to a neutral color
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
-defaults[locale]=sub                   # Subbed or dubbed
+defaults[locale]=null                  # Subbed or dubbed
 defaults[target_lang]=en               # Target language to encode videos to
 defaults[origin_lang]=jp               # Original language videos (or streams of interest thereof) were encoded in
 defaults[framerate]=23.976             # Output framerate
@@ -906,8 +906,17 @@ while true; do
                         consume_next_arg=target_lang
                         ;;
                     # Sub/dub
+                    sub )
+                        defaults[locale]=sub
+
+                        # Implies --auto
+                        defaults[auto]=true
+                        ;;
                     dub )
                         defaults[locale]=dub
+
+                        # Implies --auto
+                        defaults[auto]=true
                         ;;
                     # Updates and versioning
                     --version )
@@ -1364,8 +1373,158 @@ VID
 
     # Determine streams either automatically or by prompt
     if [[ $cur_vid_auto == true ]]; then
-        # Burns subs automatically too (mirroring Meow's original script)
-        [[ $vid_burn_subs == null ]] && vid_burn_subs=true
+        if [[ $locale != null ]]; then
+            # Create sub/dub automatically
+            # Determine audio stream
+            local -A audio_id_lang_map=()
+            local -A audio_langs=()
+            local audio_default_id=
+            local audio_default_lang=
+            local audio_lang_set=() audio_id_set=()
+            local -A subtitle_id_lang_map=()
+            local -A subtitle_langs=()
+            local subtitle_default_id=
+            local subtitle_default_lang=
+            local subtitle_lang_set=() subtitle_id_set=()
+
+            IFS=$'\n'
+            for astream in $( grep -Ee '^ +Stream #.+ Audio: ' <<< "$streams" ); do
+                if [[ $astream =~ \#[0-9]+:([0-9]+)\(([^()]+)\) ]]; then
+                    local astream_id=${BASH_REMATCH[1]}
+                    local astream_lang=${BASH_REMATCH[2]}
+                    audio_id_lang_map[$astream_id]=$astream_lang
+                    audio_langs[$astream_lang]=1
+
+                    if [[ $astream == *(default)* ]]; then
+                        audio_default_id=$astream_id
+                        audio_default_lang=$astream_lang
+                    fi
+                else
+                    echo "Error: determining localized audio streams failed" 1>&2
+                fi
+            done
+
+            for sstream in $( grep -Ee '^ +Stream #.+ Subtitle: ' <<< "$streams" ); do
+                if [[ $sstream =~ \#[0-9]+:([0-9]+)\(([^()]+)\) ]]; then
+                    local sstream_id=${BASH_REMATCH[1]}
+                    local sstream_lang=${BASH_REMATCH[2]}
+                    subtitle_id_lang_map[$sstream_id]=$sstream_lang
+                    subtitle_langs[$sstream_lang]=1
+
+                    if [[ $sstream == *(default)* ]]; then
+                        subtitle_default_id=$sstream_id
+                        subtitle_default_lang=$sstream_lang
+                    fi
+                else
+                    echo "Error: determining localized subtitle streams failed" 1>&2
+                fi
+            done
+
+            audio_lang_set=("${!audio_langs[@]}")
+            subtitle_lang_set=("${!subtitle_langs[@]}")
+            audio_id_set=("${!audio_id_lang_map[@]}")
+            subtitle_id_set=("${!subtitle_id_lang_map[@]}")
+
+            # declare -p audio_id_lang_map
+            # declare -p audio_langs
+            # declare -p audio_default_id
+            # declare -p audio_default_lang
+            # declare -p audio_lang_set
+            # declare -p audio_id_set
+            # declare -p subtitle_id_lang_map
+            # declare -p subtitle_langs
+            # declare -p subtitle_default_id
+            # declare -p subtitle_default_lang
+            # declare -p subtitle_lang_set
+            # declare -p subtitle_id_set
+
+            if [[ $locale = sub ]]; then
+                # Encode a video with subs
+                if [[ -n $subtitle_default_id ]]; then
+                    # We have a default subtitle track, so use
+                    # the first non-default subtitle track
+                    for sstream_id in "${subtitle_id_set[@]}"; do
+                        if [[ $sstream_id != $subtitle_default_id ]]; then
+                            subtitle_stream=$sstream_id
+                            break
+                        fi
+                    done
+                elif [[ ${#subtitle_id_set[@]} -gt 1 ]]; then
+                    # We have more than one subtitle track
+                    # without any defaults, use the second one
+                    subtitle_stream=${subtitle_id_set[1]}
+                elif [[ ${#subtitle_id_set[@]} -gt 0 ]]; then
+                    # We only have one choice of subtitle
+                    # track, so we'll use it
+                    subtitle_stream=${subtitle_id_set[0]}
+                fi
+
+                if [[ ${#audio_lang_set[@]} -gt 1 ]]; then
+                    # We actually have labeled audio tracks,
+                    # use the track labeled with the origin
+                    # langauge
+                    local lang_regex="^$origin_lang.*"
+
+                    for id in "${audio_id_set[@]}"; do
+                        if [[ ${audio_id_lang_map[$id]} =~ $lang_regex ]]; then
+                            audio_stream=$id
+                            break
+                        fi
+                    done
+                elif [[ -n $audio_default_id ]]; then
+                    # We have a default track, we'll
+                    # assume it's the origin language
+                    audio_stream=$audio_default_id
+                else
+                    # We don't have labeled or default audio
+                    # tracks, so we'll use the first audio
+                    # track assuming that it's the origin lang
+                    audio_stream=${audio_id_set[0]}
+                fi
+            else
+                # Encode a video dubbed
+                local lang_regex="^$target_lang.*"
+                if [[ $audio_default_lang =~ $lang_regex && -n $subtitle_default_id ]]; then
+                    # Default audio is dubbed and it has default
+                    # subtitles, we'll burn them
+                    subtitle_stream=$subtitle_default_id
+                else
+                    # We don't have obvious subtitles to burn,
+                    # so we'll disable subtitles for this dubbed
+                    # encode
+                    vid_burn_subs=false
+                fi
+
+                if [[ ${#audio_lang_set[@]} -gt 1 ]]; then
+                    # Audio seems to be labeled, get the
+                    # one with the correct label
+                    for id in "${audio_id_set[@]}"; do
+                        if [[ ${audio_id_lang_map[$id]} =~ $lang_regex ]]; then
+                            audio_stream=$id
+                            break
+                        fi
+                    done
+                elif [[ ${#audio_id_set[@]} -gt 1 ]]; then
+                    # Audio doesn't seem to be labeled,
+                    # go for the second one
+                    audio_stream=${audio_id_set[1]}
+                elif [[ ${#audio_id_set[@]} -eq 1 ]]; then
+                    # We only have one track, let's use it
+                    audio_stream=${audio_id_set[0]}
+                fi
+            fi
+
+            # Determine subtitle stream type
+            if [[ -n $subtitle_stream ]]; then
+                local subtitle_stream_type=$( grep -E 'Stream #[0-9]:'"$subtitle_stream"'[^0-9]+.+Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+                vid_burn_subs=true
+            fi
+        else
+            # Original automatic behavior
+            #
+            # Burns subs automatically too (mirroring Meow's original script)
+            [[ $vid_burn_subs == null ]] && vid_burn_subs=true
+        fi
     else
         # Filter non video/audio/subtitle streams
         local vid_sed_filter_stream_options=(-n -e '/Video|Audio|Subtitle/p')
