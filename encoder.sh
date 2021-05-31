@@ -480,9 +480,18 @@ DESCRIPTION
 OPTIONS" | sed -Ee '1d'
 
     usage_section all "
-    sub dub
+    sub, dub
         Whether to encode subbed or dubbed.
-        Defaults to subbed. Noop.
+        Defaults to subbed. Implies --auto.
+"
+    usage_section advanced "
+    --target-lang LANG
+        Target language that videos will be
+        encoded to. Defaults to $( b en ).
+
+    --origin-lang LANG
+        Original language that videos are currently
+        encoded in. Defaults to $( b jp ).
 "
     usage_section basic "
     -r, --resolution RES
@@ -611,7 +620,8 @@ defaults[burn_subs]=null               # Burns subtitles into videos
 defaults[recolor_subs]=false           # Recolor subtitles to a neutral color
 defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by default)
 defaults[locale]=sub                   # Subbed or dubbed
-defaults[framerate]=original           # Framerate
+defaults[target_lang]=en               # Target language to encode videos to
+defaults[origin_lang]=jp               # Original language videos (or streams of interest thereof) were encoded in
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
 defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
@@ -820,15 +830,25 @@ while true; do
                         # Print help and quit
                         defaults[help_section]=basic
                         ;;
-                    --version )
-                        echo "v$BATCH_ENCODER_VERSION"
-                        exit
+                    --origin-lang )
+                        # Directory is supplied as next arg
+                        consume_next=true
+                        consume_next_arg=origin_lang
+                        ;;
+                    --target-lang )
+                        # Directory is supplied as next arg
+                        consume_next=true
+                        consume_next_arg=target_lang
                         ;;
                     # Sub/dub
                     dub )
                         defaults[locale]=dub
                         ;;
                     # Updates and versioning
+                    --version )
+                        echo "v$BATCH_ENCODER_VERSION"
+                        exit
+                        ;;
                     update )
                         update_encoder
                         exit $?
