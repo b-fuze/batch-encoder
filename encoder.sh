@@ -138,6 +138,7 @@ update_encoder() {
             echo "Version $( b "$BATCH_ENCODER_VERSION" )-$cur_commit"
         else
             git checkout HEAD . -q
+            git merge "$remote_name"/"$branch"
             local new_version=$( grep BATCH_ENCODER_VERSION -m 1 encoder.sh | sed -E 's/^.+=(.+)$/\1/' )
             echo "Updated to latest version"
             echo "Version $( b "$BATCH_ENCODER_VERSION" )-$cur_commit $( b $'\e[32m''->' ) $( b "$new_version" )-$new_commit"
