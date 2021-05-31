@@ -49,8 +49,8 @@ confirm() {
 
 # Get key value from detail string structure
 get_detail() {
-    key="$1"
-    details="$2"
+    local key="$1"
+    local details="$2"
 
     echo "$details" | grep -E "^$key:" | sed -Ee 's/^[^:]+:(.*)$/\1/'
 }
@@ -258,29 +258,29 @@ print_config() {
 
 # Print CLI args used
 print_ffmpeg_args() {
-  local ffmpeg_cmd=$1
-  shift
-  local args=("$@")
+    local ffmpeg_cmd=$1
+    shift
+    local args=("$@")
 
-  echo -en '\e[90m'
-  echo -n "$ffmpeg_cmd"
-  echo -en '\e[0m '
+    echo -en '\e[90m'
+    echo -n "$ffmpeg_cmd"
+    echo -en '\e[0m '
 
-  local next_arg=
-  for arg in "${args[@]}"; do
+    local next_arg=
+    for arg in "${args[@]}"; do
     echo -n "$next_arg"
 
     if [[ ${arg:0:1} = - ]]; then
-      next_arg=$'\e[35m'"$arg"$'\e[0m'
+        next_arg=$'\e[35m'"$arg"$'\e[0m'
     else
       next_arg=\'"$arg"\'
     fi
 
     next_arg+=' '
-  done
+    done
 
-  next_arg=${next_arg% }
-  echo "$next_arg"
+    next_arg=${next_arg% }
+    echo "$next_arg"
 }
 
 # Human readable duration
@@ -1563,7 +1563,7 @@ start_encoding() {
 
         # Debug ffmpeg cli args
         if [[ $debug_ffmpeg_args = true ]]; then
-          print_ffmpeg_args "${vid_full_cmd[@]}"
+              print_ffmpeg_args "${vid_full_cmd[@]}"
         fi
 
         # Record start time and end time
