@@ -1,6 +1,7 @@
 #!/bin/bash
+# vim:set shiftwidth=4 tabstop=4:
 
-BATCH_ENCODER_VERSION=0.1.12
+BATCH_ENCODER_VERSION=0.1.13
 
 # Author: Mike32
 #
@@ -11,7 +12,6 @@ BATCH_ENCODER_VERSION=0.1.12
 #
 # It also works on Windows via WSL as long as both `ffmpeg.exe` and 
 # `ffprobe.exe` are in your PATH
-# vim:set shiftwidth=4 tabstop=4:
 
 # [1] TODO: Cache FFprobes output somewhere
 # [2] TODO: Validate stream options
