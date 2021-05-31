@@ -1483,6 +1483,7 @@ AUTO:$cur_vid_auto
 VSTREAM:$video_stream
 ASTREAM:$audio_stream
 ASTREAM_PASSTHROUGH:$audio_aac_passthrough
+HAS_ASTREAM:$( get_first_stream_id "Audio" "$streams" )
 SSTREAM:$subtitle_stream
 SSTREAM_INDEX:$subtitle_stream_index
 SSTREAM_TYPE:$subtitle_stream_type
@@ -1607,6 +1608,7 @@ start_encoding() {
         video_stream="$( get_detail "VSTREAM" "$details" )"
         audio_stream="$( get_detail "ASTREAM" "$details" )"
         audio_stream_passthrough="$( get_detail "ASTREAM_PASSTHROUGH" "$details" )"
+        has_audio_stream="$( get_detail "HAS_ASTREAM" "$details" )"
         subtitle_stream="$( get_detail "SSTREAM" "$details" )"
         subtitle_stream_index="$( get_detail "SSTREAM_INDEX" "$details" )"
         subtitle_stream_type="$( get_detail "SSTREAM_TYPE" "$details" )"
@@ -1698,12 +1700,14 @@ start_encoding() {
             vid_output_args+=(-map 0:$video_stream)
         fi
 
-        # Choose different audio stream
-        if [[ -n $audio_stream ]]; then
-            vid_output_args+=(-map 0:$audio_stream)
-        else
-            # Use first audio stream as default
-            vid_output_args+=(-map 0:a:0)
+        if [[ -n $has_audio_stream ]]; then
+            # Choose different audio stream
+            if [[ -n $audio_stream ]]; then
+                vid_output_args+=(-map 0:$audio_stream)
+            else
+                # Use first audio stream as default
+                vid_output_args+=(-map 0:a:0)
+            fi
         fi
 
         # Check if using AAC passthrough
