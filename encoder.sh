@@ -418,7 +418,7 @@ run_ffmpeg() {
                 local enc_pct_n="$( printf "%.f" "$( bc <<< "scale=8; (${cur_progress[frame]} / $enc_frame_count) * 100" )" )"
                 local enc_pct_padding="   "
                 local enc_pct="${enc_pct_padding:0:-${#enc_pct_n}}${enc_pct_n}%"
-                if [[ $( printf "%.f" "${cur_progress[fps]}" ) -gt 0 ]]; then
+                if [[ "$( printf "%.f" "${cur_progress[fps]}" )" -gt 0 ]]; then
                     local eta_secs="$( printf "%.f" "$( bc <<< "scale=8; ($enc_frame_count - ${cur_progress[frame]}) / ${cur_progress[fps]}" )" )"
                 else
                     local eta_secs=0
@@ -1255,7 +1255,7 @@ process_videos_prompt() {
 
                 # If there's more than one subtitle stream then prompt
                 # for the specific one
-                if [[ $( wc -l <<< "$cur_vid_sub_streams" ) -gt 1 ]]; then
+                if [[ "$( wc -l <<< "$cur_vid_sub_streams" )" -gt 1 ]]; then
                     echo -n "Select Subtitle [default]: "
                     read subtitle_stream
                     local subtitle_stream_type=$( grep -E -m 1 "Stream #0:$subtitle_stream[^0-9]" <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
@@ -1281,7 +1281,7 @@ process_videos_prompt() {
         # subtitle
         if [[ -z $subtitle_stream_type ]]; then
             local subtitle_stream=$( get_first_stream_id "Subtitle" "$streams" )
-            local subtitle_stream_type=$( grep -E 'Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
+            local subtitle_stream_type=$( grep -E 'Stream.+Subtitle' -m 1 <<< "$streams" | sed -Ee 's/^.+Subtitle: ([a-z_]+).*$/\1/' )
         fi
     fi
 
