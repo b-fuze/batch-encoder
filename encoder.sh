@@ -478,7 +478,8 @@ DESCRIPTION
     directory (or subdirectories) to MP4 videos.
     Options are either set via optional arguments
     listed below or interactive prompts in the
-    absence of such arguments.
+    absence of such arguments. Arguments that accept
+    values can be in the form --arg=value.
 
 OPTIONS" | sed -Ee '1d'
 
@@ -534,6 +535,13 @@ OPTIONS" | sed -Ee '1d'
     -R, --recursive, --no-recursive
         Whether to recursively search subdirs for
         videos to encode. Won't by default.
+
+    --out-suffix[=SUFFIX]
+        Add a suffix to output video filenames.
+        e.g. $( b '--out-suffix=-encoded' ) would encode
+        foo.mkv into foo-encoded.mp4 instead
+        of foo.mp4. Defaults to -out when SUFFIX
+        is omitted.
 
     --clean
         Remove original videos after encoding.
@@ -614,6 +622,8 @@ defaults[auto]=null                    # Automatically determine streams
 defaults[src_dir]=.                    # Source directory
 defaults[out_dir]=null                 # Output directory
 defaults[recursive]=null               # Recursively encode subdirs
+defaults[out_suffix]=false             # Append a suffix to output filename
+defaults[out_suffix_name]=""           # Output filename suffix
 defaults[force]=false                  # Overwrites existing encodes
 defaults[watch]=false                  # Watch source directory for new videos
 defaults[watch_rescan]=false           # Rescan the source dir for every inotify event
@@ -711,7 +721,15 @@ while true; do
             cur_base_arg_index=0
 
             while [[ -n ${cur_base_arg[$cur_base_arg_index]} ]]; do
-                case ${cur_base_arg[$cur_base_arg_index]} in
+                cur_arg_name=${cur_base_arg[$cur_base_arg_index]}
+                cur_arg_param=
+
+                if [[ $cur_arg_name =~ = ]]; then
+                    cur_arg_param=${cur_arg_name#*=}
+                    cur_arg_name=${cur_arg_name%%=*}
+                fi
+
+                case $cur_arg_name in
                     # Match all (listed) single char arguments either combined
                     # (e.g -aRs) or separate (e.g -a -R -s)
                     -+([adhsRrw]) )
@@ -773,6 +791,15 @@ while true; do
                         ;;
                     --no-recursive )
                         defaults[recursive]=false
+                        ;;
+                    --out-suffix )
+                        defaults[out_suffix]=true
+                        defaults[out_suffix_name]=-out
+
+                        # out-suffix's name is (optionally) supplied as next arg
+                        consume_next=true
+                        consume_optional=true
+                        consume_next_arg=out_suffix_name
                         ;;
                     --force )
                         defaults[force]=true
@@ -860,6 +887,18 @@ while true; do
                         : # Nothing to do NOTE: Likely pointless
                 esac
 
+                # Assign values created by --arg=value syntax
+                if [[ -n $cur_arg_param && $consume_next = true ]]; then
+                    # Special handling for --source/-s values.
+                    if [[ $consume_next_arg = source ]]; then
+                        add_source "$consume_next"
+                    else
+                        defaults[$consume_next_arg]=$cur_arg_param
+                    fi
+                    consume_next=false
+                    consume_optional=false
+                fi
+
                 (( cur_base_arg_index++ ))
             done
         fi
@@ -881,6 +920,8 @@ out_dir="${defaults[out_dir]}"
 src_dir="${defaults[src_dir]}"
 recursive="${defaults[recursive]}"
 force="${defaults[force]}"
+out_suffix="${defaults[out_suffix]}"
+out_suffix_name="${defaults[out_suffix_name]}"
 watch="${defaults[watch]}"
 watch_rescan="${defaults[watch_rescan]}"
 watch_validate="${defaults[watch_validate]}"
@@ -889,6 +930,8 @@ burn_subs="${defaults[burn_subs]}"
 recolor_subs="${defaults[recolor_subs]}"
 watermark="${defaults[watermark]}"
 locale="${defaults[locale]}"
+target_lang="${defaults[target_lang]}"
+origin_lang="${defaults[origin_lang]}"
 framerate="${defaults[framerate]}"
 debug_run="${defaults[debug_run]}"
 debug_run_dur="${defaults[debug_run_dur]}"
@@ -1160,7 +1203,7 @@ process_videos_prompt() {
     local video_details_outfile=$4
 
     local streams=
-    local vid_out="$vid_dir/${vid_file%.*}.mp4"
+    local vid_out="$vid_dir/${vid_file%.*}$out_suffix_name.mp4"
     local cur_vid_auto=$auto
     local cur_vid_details=
     local video_stream=
