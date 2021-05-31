@@ -141,7 +141,7 @@ update_encoder() {
             git merge "$remote_name"/"$branch"
             local new_version=$( grep BATCH_ENCODER_VERSION -m 1 encoder.sh | sed -E 's/^.+=(.+)$/\1/' )
             echo "Updated to latest version"
-            echo "Version $( b "$BATCH_ENCODER_VERSION" )-$cur_commit $( b $'\e[32m''->' ) $( b "$new_version" )-$new_commit"
+            echo "From version $( b "$BATCH_ENCODER_VERSION" )-$cur_commit $( b $'\e[32m''->' ) $( b "$new_version" )-$new_commit"
         fi
     else
         echo "Error: can't update, not installed with Git" 1>&2
