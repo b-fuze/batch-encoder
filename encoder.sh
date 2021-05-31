@@ -655,6 +655,7 @@ defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by d
 defaults[locale]=sub                   # Subbed or dubbed
 defaults[target_lang]=en               # Target language to encode videos to
 defaults[origin_lang]=jp               # Original language videos (or streams of interest thereof) were encoded in
+defaults[framerate]=23.976             # Output framerate
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
 defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
@@ -680,18 +681,17 @@ ffmpeg_input_args=(
 
 ffmpeg_output_args=(
     -y                # Overwrite existing files without prompting, we check instead
-    -c:v libx264 
-    -r 24000/1001
-    -preset veryslow 
-    -tune ssim,fastdecode,zerolatency 
-    -trellis 2 
-    -subq 11 
-    -me_method umh 
+    -c:v libx264
+    -preset veryslow
+    -tune ssim,fastdecode,zerolatency
+    -trellis 2
+    -subq 11
+    -me_method umh
     -crf 19
-    -vsync 2 
+    -vsync 2
     -g 30
     -x264-params ref=6:deblock=1,1:bframes=8:psy-rd=1.5:aq-mode=3:aq-strength=1:psy-rd=1.50,0.60
-    -profile:v high 
+    -profile:v high
     -level 4.1
     -b_strategy 1
     -bf 16
@@ -699,12 +699,12 @@ ffmpeg_output_args=(
     -color_trc bt709
     -colorspace bt709
     -pix_fmt yuv420p
-    -c:a aac 
+    -c:a aac
     -ac 2
     -b:a 192k
-    -sn 
-    -map_metadata -1 
-    -map_chapters -1 
+    -sn
+    -map_metadata -1
+    -map_chapters -1
     -movflags +faststart # Web optimization
 )
 
@@ -985,7 +985,7 @@ case $res in
 esac
 
 # Validate framerate
-if ! [[ $framerate = original || ( $framerate =~ ^[0-9]+$ && $framerate -gt 11 ) ]]; then
+if ! [[ $framerate = original || ( $framerate =~ ^[0-9]+(.[0-9]+)?$ && "$( bc <<< "$framerate > 12" )" = 1 ) ]]; then
     usage
     echo -e '\n'"Invalid or missing framerate '$framerate'. Must be an integer greater than 12."
     exit 1
