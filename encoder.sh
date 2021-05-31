@@ -611,6 +611,12 @@ OPTIONS" | sed -Ee '1d'
     --verbose-streams
         Print all streams and don't exclusively filter
         video, audio, and subtitle streams.
+
+    --prompt-all
+        Prompt for all videos even if they have identical
+        stream tracks. Defaults to using the configuration
+        of an earlier video with the same stream/track 
+        structure without prompting.
 "
     echo -n "
     --version
@@ -662,6 +668,7 @@ defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
 defaults[debug_ffmpeg_args]=false      # Print FFmpeg cli args
 defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
+defaults[prompt_all]=false             # Prompt for all videos, even ones with identical stream structures
 defaults[help_section]=""              # Help section to choose from: basic, advanced, debug, all
 
 arg_mapping[-r]=--resolution
@@ -866,6 +873,9 @@ while true; do
                     --fatal )
                         defaults[fatal]=true
                         ;;
+                    --prompt-all )
+                        defaults[prompt_all]=true
+                        ;;
                     --verbose-streams )
                         defaults[verbose_streams]=true
                         ;;
@@ -962,6 +972,7 @@ debug_run_dur="${defaults[debug_run_dur]}"
 debug_ffmpeg_errors="${defaults[debug_ffmpeg_errors]}"
 debug_ffmpeg_args="${defaults[debug_ffmpeg_args]}"
 fatal="${defaults[fatal]}"
+prompt_all="${defaults[prompt_all]}"
 verbose_streams="${defaults[verbose_streams]}"
 
 # Encode videos in current directory by default if
@@ -1300,12 +1311,9 @@ process_videos_prompt() {
     local subtitle_stream_type=
     local vid_burn_subs=$burn_subs
 
-    if [[ $cur_vid_auto == null ]]; then
-        confirm "Find streams automatically?" "y" && cur_vid_auto=true
-    fi
-
     # Get list of all streams
     local streams=$( "$ffprobe_executable" "$( path "$video" )" 2>&1 )
+    local streams_hash=$( grep -E '^ +Stream' <<< "$streams" | grep -F -e ' Video: ' -e ' Audio: ' -e ' Subtitle: ' | sha256sum )
 
     # Duration line is independent of streams
     local vid_duration_line=$( echo -n "$streams" | grep "Duration: " )
@@ -1321,6 +1329,38 @@ process_videos_prompt() {
         local vid_stream_framecount="$( get_stream_framecount "$( echo -en "$vid_duration_line\n$cur_vid_stream_details" )" )"
         local cur_vid_vid_streams+=("$vid_stream_framecount")
     done
+
+    # Get the video stream height
+    local video_stream_height=$( sed -Ee '2,$d; s/^.+[0-9]+[xX]([0-9]+).+$/\1/' <<< "$vid_video_streams" )
+
+    # If this video has identical stream structure to previous videos
+    # then reuse the previous video's configuration and exit
+    if [[ $prompt_all = false && -n ${video_details_hashed[$streams_hash]} ]]; then
+        local cached_vid_details=${video_details_hashed[$streams_hash]}
+        local cur_vid_details=$(cat <<VID
+VIDEO:$video
+VIDEO_OUT:$vid_out
+VIDEO_HEIGHT:$video_stream_height
+VSTREAM_FRAMES:${cur_vid_vid_streams[*]}
+$( grep -vE -e '^VIDEO:' -e '^VIDEO_OUT:' -e '^VIDEO_HEIGHT:' -e '^VSTREAM_FRAMES:' <<< "$cached_vid_details" )
+VID
+)
+        echo -n "$cur_vid_details" > "$video_details_outfile"
+        return
+    fi
+
+    if [[ $cur_vid_auto == null ]]; then
+        confirm "Find streams automatically?" "y" && cur_vid_auto=true
+    fi
+
+    # Detect subtitle streams
+    local cur_vid_has_subtitles=true
+    local subtitle_stream
+    local cur_vid_sub_streams=$( grep -E "Stream #.+Subtitle" <<< "$streams" )
+
+    if [[ -z "$cur_vid_sub_streams" ]]; then
+        local cur_vid_has_subtitles=false
+    fi
 
     # Determine streams either automatically or by prompt
     if [[ $cur_vid_auto == true ]]; then
@@ -1365,15 +1405,6 @@ process_videos_prompt() {
         fi
     fi
 
-    # Detect subtitle streams
-    local cur_vid_has_subtitles=true
-    local subtitle_stream
-    local cur_vid_sub_streams=$( grep -E "Stream #.+Subtitle" <<< "$streams" )
-
-    if [[ -z "$cur_vid_sub_streams" ]]; then
-        local cur_vid_has_subtitles=false
-    fi
-
     # If we're not automatically detecting streams prompt for the subtitle
     # stream
     if [[ $cur_vid_auto != true && ( $vid_burn_subs == null || $vid_burn_subs == true ) ]]; then
@@ -1416,9 +1447,6 @@ process_videos_prompt() {
         fi
     fi
 
-    # Get the video stream height
-    local video_stream_height=$( sed -Ee '2,$d; s/^.+[0-9]+[xX]([0-9]+).+$/\1/' <<< "$vid_video_streams" )
-
     # Find the relative subtitle stream number
     local subtitle_stream_index=0
 
@@ -1460,6 +1488,7 @@ SSTREAM_INDEX:$subtitle_stream_index
 SSTREAM_TYPE:$subtitle_stream_type
 VSTREAM_FRAMES:${cur_vid_vid_streams[*]}
 BURNSUBS:$vid_burn_subs
+STREAMS_HASH:$streams_hash
 VID
 )
 
@@ -1468,6 +1497,7 @@ VID
 
 # Initially empty video details
 video_details=()
+declare -A video_details_hashed=()
 video_count=0
 video_successful_count=0
 cur_video_index=0 # TODO: This variable is used across different functions, possibly problematic
@@ -1528,7 +1558,11 @@ process_videos() {
         cur_vid_details=$(< "$video_details_outfile")
 
         # Only add these new details if this current processing wasn't changed
-        [[ $cur_video_index = $cur_video_processing_index ]] && video_details[$cur_video_index]="$cur_vid_details"
+        if [[ $cur_video_index = $cur_video_processing_index ]]; then
+            video_details[$cur_video_index]="$cur_vid_details"
+            video_details_hash=$( get_detail "STREAMS_HASH" "$cur_vid_details" )
+            video_details_hashed[$video_details_hash]=$cur_vid_details
+        fi
 
         # Remove the video detail tmp file
         rm "$video_details_outfile"
