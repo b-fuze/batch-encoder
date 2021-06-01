@@ -617,6 +617,20 @@ OPTIONS" | sed -Ee '1d'
         stream tracks. Defaults to using the configuration
         of an earlier video with the same stream/track 
         structure without prompting.
+
+    edit-config
+        Edit config file in a file editor. Use --editor
+        to choose an editor, e.g. $( b vim ) for Linux or
+        $( b notepad.exe ) for Windows, which are also the
+        defaults.
+
+    load-config CONFIG_URL
+        Download a new config file from CONFIG_URL and
+        change the current to the new config.
+
+    reset-config
+        Removes the config file and resets all
+        configuration to the defaults.
 "
     echo -n "
     --version
@@ -661,7 +675,7 @@ defaults[watermark]="$data_dir/au.ass" # Watermark video (with AU watermark by d
 defaults[locale]=null                  # Subbed or dubbed
 defaults[target_lang]=en               # Target language to encode videos to
 defaults[origin_lang]=jp               # Original language videos (or streams of interest thereof) were encoded in
-defaults[framerate]=23.976             # Output framerate
+defaults[framerate]=original           # Output framerate
 defaults[debug_run]=false              # Only encode short durations of the video for testing
 defaults[debug_run_dur]=5              # Debug run duration
 defaults[debug_ffmpeg_errors]=false    # Don't remove FFmpeg error logs
@@ -669,6 +683,9 @@ defaults[debug_ffmpeg_args]=false      # Print FFmpeg cli args
 defaults[fatal]=false                  # Fail on FFmpeg errors
 defaults[verbose_streams]=false        # Don't filter video, audio, and subs streams, also print e.g attachment streams
 defaults[prompt_all]=false             # Prompt for all videos, even ones with identical stream structures
+defaults[edit_config]=false            # Whether to edit the config file or not
+defaults[edit_config_editor]=""        # Default editor for edit-config command. If omitted is Vim on *nix and Notepad on Windows
+defaults[download_config_url]=""       # URL to download a new config from
 defaults[help_section]=""              # Help section to choose from: basic, advanced, debug, all
 
 arg_mapping[-r]=--resolution
@@ -927,6 +944,31 @@ while true; do
                         update_encoder
                         exit $?
                         ;;
+                    edit-config )
+                        defaults[edit_config]=true
+                        ;;
+                    load-config )
+                        consume_next=true
+                        consume_next_arg=download_config_url
+                        ;;
+                    reset-config )
+                        config_file=~/.config/batch-encoder-cfg.sh
+                        if [[ -f $config_file ]]; then
+                            if rm "$config_file"; then
+                                echo "Reset successfully"
+                            else
+                                echo "Failed to reset config"
+                                exit 1
+                            fi
+                        else
+                            echo "Already reset"
+                        fi
+                        exit
+                        ;;
+                    --editor )
+                        consume_next=true
+                        consume_next_arg=edit_config_editor
+                        ;;
                     * )
                         : # Nothing to do NOTE: Likely pointless
                 esac
@@ -1025,16 +1067,6 @@ if [[ -z $ffmpeg_executable ]]; then
     IS_WINDOWS=true
 fi
 
-if [[ -z $ffmpeg_executable ]]; then
-    echo "FFmpeg command not installed in your PATH, aborting..."
-    exit 1
-fi
-
-if [[ -z $ffprobe_executable ]]; then
-    echo "FFprobe command not installed in your PATH, aborting..."
-    exit 1
-fi
-
 # If we're running Windows make sure we have a win 2 *nix path converter around
 if [[ $IS_WINDOWS == true ]]; then
     # Check for either wslpath or cygpath
@@ -1068,6 +1100,68 @@ if [[ $IS_WINDOWS == true ]]; then
 
     # Force watch rescans (inotify doesn't work properly on WSL)
     watch_rescan=true
+fi
+
+# Edit encoder config file
+if [[ ${defaults[edit_config]} = true ]]; then
+    edit_config_editor=${defaults[edit_config_editor]}
+
+    if [[ -z $edit_config_editor ]]; then
+        if [[ $IS_WINDOWS = true ]]; then
+            edit_config_editor=notepad.exe
+        else
+            edit_config_editor=vim
+        fi
+    fi
+
+    # Create config file if it doesn't exist already
+    config_file=~/.config/batch-encoder-cfg.sh
+    if [[ ! -f "$config_file" ]]; then
+        if [[ -d "$data_dir" ]]; then
+            cp "$data_dir/config/batch-encoder-cfg.sh" "$config_file"
+        else
+            echo "" > "$config_file"
+        fi
+    fi
+
+    "$edit_config_editor" "$( path "$config_file" )"
+    exit $?
+fi
+
+# Download new config file
+if [[ -n ${defaults[download_config_url]} ]]; then
+    new_config_url=${defaults[download_config_url]}
+    config_file=~/.config/batch-encoder-cfg.sh
+    downloading_message="Downloading new config..."
+
+    if which curl &> /dev/null; then
+        echo "$downloading_message"
+        curl -sL "$new_config_url" > "$config_file"
+    elif which wget &> /dev/null; then
+        echo "$downloading_message"
+        wget -q "$new_config_url" -O "$config_file"
+    else
+        echo "Error: can't download new config, need either $( b curl ) or $( b wget )" 1>&2
+        exit 1
+    fi
+
+    if [[ $? = 0 ]]; then
+        echo "Completed successfully"
+        exit
+    else
+        echo "Error: problem downloading config file" 1>&2
+        exit 1
+    fi
+fi
+
+if [[ -z $ffmpeg_executable ]]; then
+    echo "FFmpeg command not installed in your PATH, aborting..."
+    exit 1
+fi
+
+if [[ -z $ffprobe_executable ]]; then
+    echo "FFprobe command not installed in your PATH, aborting..."
+    exit 1
 fi
 
 # Remove any repeating slashes (if any)
