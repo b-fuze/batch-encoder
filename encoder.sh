@@ -739,6 +739,7 @@ cur_arg="$1"
 consume_next=false
 consume_optional=false
 consume_next_arg=
+invalid_args=()
 
 # Argument parsing stuff
 while true; do
@@ -970,7 +971,7 @@ while true; do
                         consume_next_arg=edit_config_editor
                         ;;
                     * )
-                        : # Nothing to do NOTE: Likely pointless
+                        invalid_args+=("$cur_arg_name")
                 esac
 
                 # Assign values created by --arg=value syntax
@@ -997,6 +998,15 @@ done
 if [[ -n ${defaults[help_section]} ]]; then
     usage
     exit 0
+fi
+
+# Error on invalid arguments
+if [[ ${#invalid_args[@]} -gt 0 ]]; then
+    for arg in "${invalid_args[@]}"; do
+        echo "Error: '$( b "$arg" )' isn't a valid command or option. Did you forget a space?" 1>&2
+    done
+
+    exit 1
 fi
 
 # Deconstruct default variables
