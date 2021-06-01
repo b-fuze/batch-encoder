@@ -799,7 +799,7 @@ bep_whitespace() {
 # --- Comment ---
 bep_comment() {
     bep_node_start
-    local $( bep_grep '#.*?\n' comment_content )
+    local $( bep_grep '#.*?\n([\t ]*(#.*?)?\n)*' comment_content )
     (( bep_cur_index += ${#comment_content} ))
     bep_node_consume
 }
