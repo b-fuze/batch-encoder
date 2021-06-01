@@ -66,7 +66,7 @@ OPTIONS
 ```
 
 ## Known issues
- - `sub`/`dub` currently don't do anything, and may be removed in the future.
+ - `sub`/`dub` are implemented, but aren't guaranteed to work 100% of the time
  - List of issues TODO at the top of the Bash script
 
 ## Credits
