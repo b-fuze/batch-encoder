@@ -454,7 +454,7 @@ run_ffmpeg() {
 # Utility for checking and adding either source
 # video files or directories
 add_source() {
-    local source=$1
+    local source=$( check_windows_path "$1" )
 
     if [[ -e $source ]]; then
         if [[ -f $source ]]; then
@@ -1090,18 +1090,6 @@ if [[ $IS_WINDOWS == true ]]; then
     fi
 
     # Convert any windows provided paths to Linux
-    new_vid_sources=()
-    new_dir_sources=()
-
-    for vid in "${vid_sources[@]}"; do
-        new_vid_sources+=("$( check_windows_path "$vid" )")
-    done
-    for dir in "${dir_sources[@]}"; do
-        new_dir_sources+=("$( check_windows_path "$dir" )")
-    done
-
-    vid_sources=("${new_vid_sources[@]}")
-    dir_sources=("${new_dir_sources[@]}")
     out_dir=$( check_windows_path "$out_dir" )
 
     # Check for `attrib.exe` Windows executable so we can hide
