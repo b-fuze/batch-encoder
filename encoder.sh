@@ -1199,6 +1199,14 @@ else
     use_watermark=false
 fi
 
+# Create output dir if it doesn't exist already
+if [[ -n $out_dir && ! -d $out_dir ]]; then
+    mkdir -p "$out_dir" || {
+        echo "Error: failed to create output folder"
+        exit 1
+    }
+fi
+
 # Create temporary metadata files
 tmp_encoder_id=$( date +%s%N | sha1sum ); tmp_encoder_id=${tmp_encoder_id:0:16}
 tmp_encoder_tmpfile_dir=$( readlink -f "${out_dir:-.}" )
