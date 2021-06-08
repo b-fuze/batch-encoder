@@ -1540,9 +1540,10 @@ VID
 
             if [[ $locale = sub ]]; then
                 # Encode a video with subs
-                if [[ -n $subtitle_default_id ]]; then
-                    # We have a default subtitle track, so use
-                    # the first non-default subtitle track
+                if [[ -n $subtitle_default_id && ${#subtitle_id_set[@]} -gt 1 ]]; then
+                    # We have a default subtitle track and more
+                    # than one subtitle track, so use the first
+                    # non-default subtitle track
                     for sstream_id in "${subtitle_id_set[@]}"; do
                         if [[ $sstream_id != $subtitle_default_id ]]; then
                             subtitle_stream=$sstream_id
@@ -1584,9 +1585,10 @@ VID
             else
                 # Encode a video dubbed
                 local lang_regex="^$target_lang.*"
-                if [[ $audio_default_lang =~ $lang_regex && -n $subtitle_default_id ]]; then
+                if [[ $audio_default_lang =~ $lang_regex && -n $subtitle_default_id && ${#subtitle_id_set[@]} -gt 1 ]]; then
                     # Default audio is dubbed and it has default
-                    # subtitles, we'll burn them
+                    # subtitles and has more than 1 subs track,
+                    # we'll burn them
                     subtitle_stream=$subtitle_default_id
                 else
                     # We don't have obvious subtitles to burn,
