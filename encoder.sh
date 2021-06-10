@@ -1104,6 +1104,11 @@ fi
 if [[ ${defaults[edit_config]} = true ]]; then
     edit_config_editor=${defaults[edit_config_editor]}
 
+    # Create ~/.config folder if it doesn't exist
+    if [[ ! -d ~/.config ]]; then
+        mkdir -p ~/.config
+    fi
+
     if [[ -z $edit_config_editor ]]; then
         if [[ $IS_WINDOWS = true ]]; then
             edit_config_editor=notepad.exe
@@ -1131,6 +1136,11 @@ if [[ -n ${defaults[download_config_url]} ]]; then
     new_config_url=${defaults[download_config_url]}
     config_file=~/.config/batch-encoder-cfg.sh
     downloading_message="Downloading new config..."
+
+    # Create ~/.config folder if it doesn't exist
+    if [[ ! -d ~/.config ]]; then
+        mkdir -p ~/.config
+    fi
 
     if which curl &> /dev/null; then
         echo "$downloading_message"
