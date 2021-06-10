@@ -651,8 +651,19 @@ OPTIONS" | sed -Ee '1d'
 data_dir="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
 IS_WINDOWS=false
 
+# Check if is on Windows
 if which ffmpeg.exe &> /dev/null; then
     IS_WINDOWS=true
+
+    # Check for either wslpath or cygpath
+    if which wslpath &> /dev/null; then
+        HAS_WSLPATH=true
+    elif which cygpath &> /dev/null; then
+        HAS_CYGPATH=true
+    else
+        echo "On Windows either 'wslpath' or 'cygpath.exe' is required."
+        exit 1
+    fi
 fi
 
 # Some defaults
@@ -1083,16 +1094,6 @@ fi
 
 # If we're running Windows make sure we have a win 2 *nix path converter around
 if [[ $IS_WINDOWS == true ]]; then
-    # Check for either wslpath or cygpath
-    if which wslpath &> /dev/null; then
-        HAS_WSLPATH=true
-    elif which cygpath &> /dev/null; then
-        HAS_CYGPATH=true
-    else
-        echo "On Windows either 'wslpath' or 'cygpath.exe' is required."
-        exit 1
-    fi
-
     # Convert any windows provided paths to Linux
     out_dir=$( check_windows_path "$out_dir" )
 
