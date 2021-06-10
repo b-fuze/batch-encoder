@@ -649,6 +649,11 @@ OPTIONS" | sed -Ee '1d'
 
 # Data dir with watermark (same as script folder)
 data_dir="$(dirname $(readlink -f "${BASH_SOURCE[0]}"))"
+IS_WINDOWS=false
+
+if which ffmpeg.exe &> /dev/null; then
+    IS_WINDOWS=true
+fi
 
 # Some defaults
 declare -A defaults
@@ -1066,7 +1071,6 @@ fi
 # Find FFmpeg executable
 ffmpeg_executable=$( which ffmpeg )
 ffprobe_executable=$( which ffprobe )
-IS_WINDOWS=false
 windows_attrib_executable=
 
 # Check for Windows FFmpeg in WSL if we haven't found a *nix
