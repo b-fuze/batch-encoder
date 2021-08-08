@@ -1,7 +1,7 @@
 #!/bin/bash
 # vim:set shiftwidth=4 tabstop=4:
 
-BATCH_ENCODER_VERSION=0.2.6
+BATCH_ENCODER_VERSION=0.2.8
 
 # Author: Mike32
 #
