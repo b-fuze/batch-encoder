@@ -6,9 +6,18 @@
 # Note: Only uncomment what you want to change by removing the first # (hash) at
 # the beginning of the line
 
+# Uncomment this array variable to set default sources
+# that are always encoded by batch encoder.
+#
+# default_sources=(
+#   "/some/video/folder"
+#   "/some/video.mkv"
+# )
+
 # defaults[framerate]=original           # Output framerate
 # defaults[res]=prompt                   # Default resolution (same as source)
 # defaults[auto]=null                    # Automatically determine streams
+# defaults[keep_default_sources]=false   # If sources are specified don't omit the default sources
 # defaults[out_dir]=""                   # Output directory
 # defaults[recursive]=null               # Recursively encode subdirs
 # defaults[out_suffix]=false             # Append a suffix to output filename

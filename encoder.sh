@@ -158,6 +158,7 @@ load_config() {
         bep_cur_file=~/.config/batch-encoder-cfg.sh
 
         # Sync the relevant variables with the parser
+        bep_sync default_sources
         bep_sync defaults
         bep_sync ffmpeg_input_args
         bep_sync ffmpeg_output_args
@@ -255,6 +256,22 @@ print_config() {
         echo -en "\e[95m'\e[0m$tail"
         local initial_newline=
     done
+
+    if [[ ${#dir_sources[@]} -gt 0 ]]; then
+        echo -en '\n\n\e[1m'"SOURCE FOLDERS:\e[0m"
+        for arg in "${dir_sources[@]}"; do
+            # Print arg with escaped single quotes
+            printf "\n  \e[95m'\e[37m%s\e[95m'\e[37m\e[0m" "${arg//\'/\'\\\'\'}"
+        done
+    fi
+
+    if [[ ${#vid_sources[@]} -gt 0 ]]; then
+        echo -en '\n\n\e[1m'"SOURCE VIDEOS:\e[0m"
+        for arg in "${vid_sources[@]}"; do
+            # Print arg with escaped single quotes
+            printf "\n  \e[95m'\e[37m%s\e[95m'\e[37m\e[0m" "${arg//\'/\'\\\'\'}"
+        done
+    fi
 
     echo
 }
@@ -556,6 +573,12 @@ OPTIONS" | sed -Ee '1d'
         Whether to recursively search subdirs for
         videos to encode. Won't by default.
 
+    --keep-default-sources
+        If sources are specified don't omit the
+        default sources specified in the config
+        file. Omits them by default if any
+        sources are specified.
+
     --out-suffix[=SUFFIX]
         Add a suffix to output video filenames.
         e.g. $( b '--out-suffix=-encoded' ) would encode
@@ -677,8 +700,13 @@ declare -A arg_mapping
 vid_sources=()
 dir_sources=()
 
+# Default sources that will be included if no sources
+# are specified or keep_default_sources is true
+default_sources=()
+
 defaults[res]=prompt                   # Default resolution (same as source)
 defaults[auto]=null                    # Automatically determine streams
+defaults[keep_default_sources]=false   # If sources are specified don't omit the default sources
 defaults[out_dir]=""                   # Output directory
 defaults[recursive]=null               # Recursively encode subdirs
 defaults[out_suffix]=false             # Append a suffix to output filename
@@ -754,11 +782,17 @@ ffmpeg_output_args=(
 # Check for and load config
 load_config
 
+# Load default_sources
+for src in "${default_sources[@]}"; do
+    add_source "$src"
+done
+
 cur_arg="$1"
 consume_next=false
 consume_optional=false
 consume_next_arg=
 invalid_args=()
+has_initial_source_arg=false
 
 # Argument parsing stuff
 while true; do
@@ -851,9 +885,23 @@ while true; do
                         consume_next_arg=out_dir
                         ;;
                     --source )
+                        if [[ $has_initial_source_arg = false ]]; then
+                            has_initial_source_arg=true
+
+                            # Empty sources provided by default_sources from
+                            # config file if keep_default_sources isn't set
+                            if [[ ${defaults[keep_default_sources]} = false ]]; then
+                                dir_sources=()
+                                vid_sources=()
+                            fi
+                        fi
+
                         # Directory is supplied as next arg
                         consume_next=true
                         consume_next_arg=source
+                        ;;
+                    --keep-default-sources )
+                        defaults[keep_default_sources]=true
                         ;;
                     --recursive )
                         defaults[recursive]=true
