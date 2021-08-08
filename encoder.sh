@@ -188,7 +188,8 @@ print_config() {
         local key_length=${#key}
         echo -en '\e[32m'"  $key\e[0m:${longest_key:$key_length}"
         echo -en "\e[95m'\e[37m"
-        echo -n "${defaults[$key]}"
+        # Print default value with escaped single quotes
+        echo -n "${defaults[$key]//\'/\'\\\'\'}"
         echo -e "\e[95m'\e[0m"
     done
 
@@ -218,7 +219,8 @@ print_config() {
                 echo -en "$initial_newline\e[95m'\e[37m"
                 ;;
         esac
-        echo -n "$arg"
+        # Print arg with escaped single quotes
+        echo -n "${arg//\'/\'\\\'\'}"
         echo -en "\e[95m'\e[0m$tail"
         local initial_newline=
     done
@@ -248,7 +250,8 @@ print_config() {
                 echo -en "$initial_newline\e[95m'\e[37m"
                 ;;
         esac
-        echo -n "$arg"
+        # Print arg with escaped single quotes
+        echo -n "${arg//\'/\'\\\'\'}"
         echo -en "\e[95m'\e[0m$tail"
         local initial_newline=
     done
